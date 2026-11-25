@@ -2,7 +2,9 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -200,6 +202,42 @@ func TestBrowseWSLDirLive(t *testing.T) {
 		t.Fatalf("expected non-empty root entries for WSL2 /")
 	}
 	t.Logf("WSL %s / resolved=%q entries=%d first=%s", distros[0].Name, resolved, len(entries), entries[0].Path)
+
+	// Test full Git operations in a temp WSL2 directory (ensures zsh shell never breaks git args)
+	tmpWSL := fmt.Sprintf("/tmp/gitpulse_test_%d", os.Getpid())
+	cleanup := exec.CommandContext(ctx, "wsl.exe", "-d", distros[0].Name, "-e", "rm", "-rf", tmpWSL)
+	hideWindow(cleanup)
+	_ = cleanup.Run()
+	defer func() {
+		c := exec.CommandContext(context.Background(), "wsl.exe", "-d", distros[0].Name, "-e", "rm", "-rf", tmpWSL)
+		hideWindow(c)
+		_ = c.Run()
+	}()
+
+	wLoc, err := InitRepo(ctx, "wsl://"+distros[0].Name+tmpWSL)
+	if err != nil {
+		t.Fatalf("WSL InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, wLoc, "config", "user.name", "WSL Test")
+	_, _, _ = RunGit(ctx, wLoc, "config", "user.email", "wsl@example.com")
+	if err := WriteRepoFile(ctx, wLoc, "hello.txt", "hi wsl\n"); err != nil {
+		t.Fatalf("WSL WriteRepoFile failed: %v", err)
+	}
+	if err := StageAll(ctx, wLoc); err != nil {
+		t.Fatalf("WSL StageAll failed: %v", err)
+	}
+	if cRes, err := Commit(ctx, wLoc, "feat: wsl commit", "", false); err != nil || !cRes.Success {
+		t.Fatalf("WSL Commit failed: %+v %v", cRes, err)
+	}
+	if brs, err := ListBranches(ctx, wLoc); err != nil || len(brs) == 0 {
+		t.Fatalf("WSL ListBranches failed: %+v err=%v", brs, err)
+	}
+	if _, err := GetRepoStatus(ctx, wLoc); err != nil {
+		t.Fatalf("WSL GetRepoStatus failed: %v", err)
+	}
+	if hist, err := GetCommitHistory(ctx, wLoc, "", "", 0, 10); err != nil || len(hist.Commits) != 1 {
+		t.Fatalf("WSL GetCommitHistory failed: %+v err=%v", hist, err)
+	}
 }
 
 func TestGitMergeConflictAndAbort(t *testing.T) {

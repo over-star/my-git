@@ -156,6 +156,7 @@ export interface DiffLine {
 export interface FileDiff {
     "path": string;
     "oldPath": string;
+    "modeChange": string;
     "isBinary": boolean;
     "oldSize": number;
     "newSize": number;

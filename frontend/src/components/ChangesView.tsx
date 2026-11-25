@@ -28,7 +28,7 @@ interface ChangesViewProps {
   onOpenConflictResolver: () => void;
   onOpenGitConfig: (scope?: "local" | "global") => void;
   onNotify: (type: "success" | "error" | "info", msg: string) => void;
-  onConfirmDiscard: (file: FileStatus) => void;
+  onConfirmDiscard: (files: FileStatus[]) => void;
 }
 
 const PREFIX_CHIPS = ["feat", "fix", "refactor", "docs", "chore"];
@@ -50,7 +50,12 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
     file: FileStatus;
     staged: boolean;
   } | null>(null);
-  const [diffMode, setDiffMode] = useState<"split" | "unified">("split");
+  const [multiPaths, setMultiPaths] = useState<string[]>([]);
+  const [activeSection, setActiveSection] = useState<"unstaged" | "staged">(
+    "unstaged"
+  );
+  const [anchorPath, setAnchorPath] = useState<string | null>(null);
+  const [diffMode, setDiffMode] = useState<"split" | "unified">("unified");
   const [ignoreWs, setIgnoreWs] = useState(false);
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
@@ -70,18 +75,100 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
         if (stillThere !== selected.file) {
           setSelected({ file: stillThere, staged: selected.staged });
         }
+        const validSet = new Set(list.map((f) => f.path));
+        setMultiPaths((prev) => {
+          const filtered = prev.filter((p) => validSet.has(p));
+          return filtered.length > 0 ? filtered : [stillThere.path];
+        });
         return;
       }
     }
     if (unstaged.length > 0) {
       setSelected({ file: unstaged[0], staged: false });
+      setActiveSection("unstaged");
+      setMultiPaths([unstaged[0].path]);
+      setAnchorPath(unstaged[0].path);
     } else if (staged.length > 0) {
       setSelected({ file: staged[0], staged: true });
+      setActiveSection("staged");
+      setMultiPaths([staged[0].path]);
+      setAnchorPath(staged[0].path);
     } else {
       setSelected(null);
+      setMultiPaths([]);
+      setAnchorPath(null);
       setDiff(null);
     }
   }, [repo.path, unstaged, staged]);
+
+  // Capture Ctrl+A inside Working Tree to select all files in active section
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "a") return;
+      const activeEl = document.activeElement as HTMLElement | null;
+      const tag = activeEl?.tagName?.toUpperCase();
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        activeEl?.isContentEditable
+      ) {
+        return;
+      }
+      const targetIsStaged =
+        (activeSection === "staged" && staged.length > 0) ||
+        (unstaged.length === 0 && staged.length > 0);
+      const list = targetIsStaged ? staged : unstaged;
+      if (list.length === 0) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      setActiveSection(targetIsStaged ? "staged" : "unstaged");
+      setMultiPaths(list.map((f) => f.path));
+      setAnchorPath(list[0].path);
+      if (!selected || selected.staged !== targetIsStaged) {
+        setSelected({ file: list[0], staged: targetIsStaged });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeSection, unstaged, staged, selected]);
+
+  const handleRowSelect = (
+    e: React.MouseEvent,
+    file: FileStatus,
+    isStaged: boolean
+  ) => {
+    const list = isStaged ? staged : unstaged;
+    const sec = isStaged ? "staged" : "unstaged";
+    setSelected({ file, staged: isStaged });
+    setActiveSection(sec);
+
+    if (e.shiftKey && anchorPath && activeSection === sec) {
+      const i1 = list.findIndex((f) => f.path === anchorPath);
+      const i2 = list.findIndex((f) => f.path === file.path);
+      if (i1 >= 0 && i2 >= 0) {
+        const [lo, hi] = i1 < i2 ? [i1, i2] : [i2, i1];
+        setMultiPaths(list.slice(lo, hi + 1).map((f) => f.path));
+        return;
+      }
+    }
+
+    if ((e.ctrlKey || e.metaKey) && activeSection === sec) {
+      setMultiPaths((prev) =>
+        prev.includes(file.path)
+          ? prev.length > 1
+            ? prev.filter((p) => p !== file.path)
+            : prev
+          : [...prev, file.path]
+      );
+      setAnchorPath(file.path);
+      return;
+    }
+
+    setMultiPaths([file.path]);
+    setAnchorPath(file.path);
+  };
 
   // Load diff whenever selection or flags change
   useEffect(() => {
@@ -106,6 +193,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
           setDiff({
             path: selected.file.path,
             oldPath: "",
+            modeChange: "",
             isBinary: false,
             oldSize: 0,
             newSize: 0,
@@ -133,9 +221,15 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
 
   const handleStage = async (e: React.MouseEvent, file: FileStatus) => {
     e.stopPropagation();
+    const targets =
+      activeSection === "unstaged" &&
+      multiPaths.length > 1 &&
+      multiPaths.includes(file.path)
+        ? multiPaths
+        : [file.path];
     setBusyPath(file.path);
     try {
-      await GitService.StageFile(repo.path, file.path);
+      await GitService.StageFiles(repo.path, targets);
       await onRefresh();
     } catch (err) {
       onNotify("error", `Stage failed: ${err}`);
@@ -146,14 +240,40 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
 
   const handleUnstage = async (e: React.MouseEvent, file: FileStatus) => {
     e.stopPropagation();
+    const targets =
+      activeSection === "staged" &&
+      multiPaths.length > 1 &&
+      multiPaths.includes(file.path)
+        ? multiPaths
+        : [file.path];
     setBusyPath(file.path);
     try {
-      await GitService.UnstageFile(repo.path, file.path);
+      await GitService.UnstageFiles(repo.path, targets);
       await onRefresh();
     } catch (err) {
       onNotify("error", `Unstage failed: ${err}`);
     } finally {
       setBusyPath(null);
+    }
+  };
+
+  const handleStageSelected = async () => {
+    if (activeSection !== "unstaged" || multiPaths.length === 0) return;
+    try {
+      await GitService.StageFiles(repo.path, multiPaths);
+      await onRefresh();
+    } catch (err) {
+      onNotify("error", `Stage failed: ${err}`);
+    }
+  };
+
+  const handleUnstageSelected = async () => {
+    if (activeSection !== "staged" || multiPaths.length === 0) return;
+    try {
+      await GitService.UnstageFiles(repo.path, multiPaths);
+      await onRefresh();
+    } catch (err) {
+      onNotify("error", `Unstage failed: ${err}`);
     }
   };
 
@@ -237,7 +357,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   const commitDisabled = committing || staged.length === 0 || !summary.trim();
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#f8fafc]">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-[#f8fafc]">
       {/* Merge / Conflict Alert Banner */}
       {(conflicted.length > 0 || (status?.mergeState ?? "") !== "") && (
         <div className="px-3 py-2 bg-[#fef2f2] border-b border-[#fecaca] flex items-center justify-between gap-3">
@@ -294,17 +414,6 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
         <div className="flex items-center gap-2.5">
           <div className="flex items-center bg-white border border-[#e2e8f0] rounded p-0.5">
             <button
-              onClick={() => setDiffMode("split")}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                diffMode === "split"
-                  ? "bg-[#f0f9ff] text-[#0284c7]"
-                  : "text-[#64748b] hover:text-[#0b1c30]"
-              }`}
-            >
-              <Columns2 className="w-3.5 h-3.5" />
-              Split
-            </button>
-            <button
               onClick={() => setDiffMode("unified")}
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
                 diffMode === "unified"
@@ -314,6 +423,17 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
             >
               <AlignJustify className="w-3.5 h-3.5" />
               Unified
+            </button>
+            <button
+              onClick={() => setDiffMode("split")}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                diffMode === "split"
+                  ? "bg-[#f0f9ff] text-[#0284c7]"
+                  : "text-[#64748b] hover:text-[#0b1c30]"
+              }`}
+            >
+              <Columns2 className="w-3.5 h-3.5" />
+              Split
             </button>
           </div>
 
@@ -332,12 +452,12 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
       </div>
 
       {/* Main Split Workbench */}
-      <div className="flex-1 flex min-h-0 p-2 gap-2">
+      <div className="flex-1 flex min-w-0 min-h-0 p-2 gap-2">
         {/* LEFT COLUMN: Unstaged + Staged + Commit Box */}
         <div className="w-[345px] shrink-0 flex flex-col bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
           {/* Unstaged Changes */}
           <div className="flex-1 flex flex-col min-h-0 border-b border-[#e2e8f0]">
-            <div className="h-8 px-2.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0">
+            <div className="h-8 px-2.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0 gap-1">
               <div className="flex items-center gap-1.5">
                 <span className="font-semibold text-[12px] text-[#0b1c30]">
                   Unstaged Changes
@@ -346,14 +466,36 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                   {unstaged.length}
                 </span>
               </div>
-              <button
-                onClick={handleStageAll}
-                disabled={unstaged.length === 0}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-[#e2e8f0] hover:border-[#0284c7] text-[#0284c7] text-[11px] font-medium disabled:opacity-40 cursor-pointer disabled:cursor-default transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-                Stage All
-              </button>
+              <div className="flex items-center gap-1">
+                {activeSection === "unstaged" && multiPaths.length > 1 && (
+                  <>
+                    <button
+                      title="Discard all selected files"
+                      onClick={() => {
+                        const set = new Set(multiPaths);
+                        onConfirmDiscard(unstaged.filter((f) => set.has(f.path)));
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-[#fef2f2] border border-[#fecaca] hover:bg-[#fee2e2] text-[#dc2626] text-[10px] font-medium cursor-pointer"
+                    >
+                      Discard ({multiPaths.length})
+                    </button>
+                    <button
+                      onClick={handleStageSelected}
+                      className="px-1.5 py-0.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-[10px] font-medium cursor-pointer"
+                    >
+                      Stage ({multiPaths.length})
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={handleStageAll}
+                  disabled={unstaged.length === 0}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-[#e2e8f0] hover:border-[#0284c7] text-[#0284c7] text-[11px] font-medium disabled:opacity-40 cursor-pointer disabled:cursor-default transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Stage All
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-1 flex flex-col gap-0.5">
@@ -363,19 +505,21 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                 </div>
               ) : (
                 unstaged.map((file) => {
-                  const isSelected =
+                  const isPrimary =
                     selected && !selected.staged && selected.file.path === file.path;
+                  const isMulti =
+                    activeSection === "unstaged" && multiPaths.includes(file.path);
                   return (
                     <div
                       key={`u:${file.path}`}
-                      onClick={() => setSelected({ file, staged: false })}
-                      className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors relative ${
-                        isSelected
-                          ? "bg-[#f0f9ff] text-[#0b1c30]"
+                      onClick={(e) => handleRowSelect(e, file, false)}
+                      className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors relative select-none ${
+                        isMulti
+                          ? "bg-[#e0f2fe] text-[#0b1c30]"
                           : "hover:bg-[#f8fafc] text-[#334155]"
                       }`}
                     >
-                      {isSelected && (
+                      {(isPrimary || isMulti) && (
                         <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-[#0284c7] rounded-r" />
                       )}
                       <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
@@ -424,7 +568,18 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                           title="Discard changes"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onConfirmDiscard(file);
+                            if (
+                              activeSection === "unstaged" &&
+                              multiPaths.length > 1 &&
+                              multiPaths.includes(file.path)
+                            ) {
+                              const set = new Set(multiPaths);
+                              onConfirmDiscard(
+                                unstaged.filter((f) => set.has(f.path))
+                              );
+                            } else {
+                              onConfirmDiscard([file]);
+                            }
                           }}
                           className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#fee2e2] text-[#dc2626] transition-opacity cursor-pointer"
                         >
@@ -448,7 +603,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
 
           {/* Staged Changes */}
           <div className="flex-1 flex flex-col min-h-0 border-b border-[#e2e8f0]">
-            <div className="h-8 px-2.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0">
+            <div className="h-8 px-2.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0 gap-1">
               <div className="flex items-center gap-1.5">
                 <span className="font-semibold text-[12px] text-[#0b1c30]">
                   Staged Changes
@@ -457,14 +612,24 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                   {staged.length}
                 </span>
               </div>
-              <button
-                onClick={handleUnstageAll}
-                disabled={staged.length === 0}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-[#e2e8f0] hover:border-[#cbd5e1] text-[#475569] text-[11px] font-medium disabled:opacity-40 cursor-pointer disabled:cursor-default transition-colors"
-              >
-                <Minus className="w-3 h-3" />
-                Unstage All
-              </button>
+              <div className="flex items-center gap-1">
+                {activeSection === "staged" && multiPaths.length > 1 && (
+                  <button
+                    onClick={handleUnstageSelected}
+                    className="px-1.5 py-0.5 rounded bg-[#475569] hover:bg-[#334155] text-white text-[10px] font-medium cursor-pointer"
+                  >
+                    Unstage ({multiPaths.length})
+                  </button>
+                )}
+                <button
+                  onClick={handleUnstageAll}
+                  disabled={staged.length === 0}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-[#e2e8f0] hover:border-[#cbd5e1] text-[#475569] text-[11px] font-medium disabled:opacity-40 cursor-pointer disabled:cursor-default transition-colors"
+                >
+                  <Minus className="w-3 h-3" />
+                  Unstage All
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-1 flex flex-col gap-0.5">
@@ -474,19 +639,21 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                 </div>
               ) : (
                 staged.map((file) => {
-                  const isSelected =
+                  const isPrimary =
                     selected && selected.staged && selected.file.path === file.path;
+                  const isMulti =
+                    activeSection === "staged" && multiPaths.includes(file.path);
                   return (
                     <div
                       key={`s:${file.path}`}
-                      onClick={() => setSelected({ file, staged: true })}
-                      className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors relative ${
-                        isSelected
-                          ? "bg-[#f0f9ff] text-[#0b1c30]"
+                      onClick={(e) => handleRowSelect(e, file, true)}
+                      className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors relative select-none ${
+                        isMulti
+                          ? "bg-[#e0f2fe] text-[#0b1c30]"
                           : "hover:bg-[#f8fafc] text-[#334155]"
                       }`}
                     >
-                      {isSelected && (
+                      {(isPrimary || isMulti) && (
                         <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-[#0284c7] rounded-r" />
                       )}
                       <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
@@ -626,7 +793,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
         </div>
 
         {/* RIGHT COLUMN: Diff Inspector */}
-        <div className="flex-1 flex flex-col min-w-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
           {selected ? (
             <>
               <div className="h-9 px-3 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between gap-2 shrink-0">
@@ -665,7 +832,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                   </button>
                   {!selected.staged && (
                     <button
-                      onClick={() => onConfirmDiscard(selected.file)}
+                      onClick={() => onConfirmDiscard([selected.file])}
                       className="flex items-center gap-1 px-2 py-1 rounded bg-[#fef2f2] border border-[#fecaca] hover:bg-[#fee2e2] text-[11px] text-[#dc2626] cursor-pointer"
                     >
                       <RotateCcw className="w-3 h-3" />
@@ -696,7 +863,24 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                   </button>
                 </div>
               </div>
-              <DiffViewer diff={diff} loading={diffLoading} mode={diffMode} />
+              <DiffViewer
+                diff={diff}
+                loading={diffLoading}
+                mode={diffMode}
+                onDisableFileMode={async () => {
+                  const res = await GitService.SetRepoConfigKey(
+                    repo.path,
+                    "core.filemode",
+                    "false"
+                  );
+                  if (res.success) {
+                    onNotify("success", "Set core.filemode = false for this repository");
+                    await onRefresh();
+                  } else {
+                    onNotify("error", res.message);
+                  }
+                }}
+              />
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-[#94a3b8] gap-2">

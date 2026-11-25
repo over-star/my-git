@@ -78,7 +78,7 @@ export function App() {
 
   // Modals
   const [repoModalOpen, setRepoModalOpen] = useState(false);
-  const [discardTarget, setDiscardTarget] = useState<FileStatus | null>(null);
+  const [discardTargets, setDiscardTargets] = useState<FileStatus[]>([]);
   const [branchModal, setBranchModal] = useState<{
     open: boolean;
     startPoint: string;
@@ -484,12 +484,19 @@ export function App() {
     }
   };
 
-  const handleDiscardConfirm = async (file: FileStatus) => {
-    if (!activeRepo) return;
-    setDiscardTarget(null);
+  const handleDiscardConfirm = async (files: FileStatus[]) => {
+    if (!activeRepo || files.length === 0) return;
+    setDiscardTargets([]);
     try {
-      await GitService.DiscardFile(activeRepo.path, file.path, file.status === "?");
-      notify("info", `Discarded ${file.path}`);
+      const tracked = files.filter((f) => f.status !== "?").map((f) => f.path);
+      const untracked = files.filter((f) => f.status === "?").map((f) => f.path);
+      await GitService.DiscardFiles(activeRepo.path, tracked, untracked);
+      notify(
+        "info",
+        files.length === 1
+          ? `Discarded ${files[0].path}`
+          : `Discarded ${files.length} files`
+      );
       await refreshRepo(activeRepo.path);
     } catch (err) {
       notify("error", `Discard failed: ${err}`);
@@ -924,7 +931,7 @@ export function App() {
                     setGitConfigModal({ open: true, scope: sc })
                   }
                   onNotify={notify}
-                  onConfirmDiscard={(file) => setDiscardTarget(file)}
+                  onConfirmDiscard={(files) => setDiscardTargets(files)}
                 />
               )}
               {view === "history" && (
@@ -1020,7 +1027,10 @@ export function App() {
                 : activeRepo.path}
             </span>
           )}
-          <span>Git {activeRepo?.gitVersion || globalGitVer}</span>
+          <span>
+            {activeRepo?.isWsl ? "WSL2 Git" : "Git"}{" "}
+            {activeRepo?.gitVersion || globalGitVer}
+          </span>
         </div>
       </footer>
 
@@ -1033,8 +1043,8 @@ export function App() {
       />
 
       <DiscardConfirmModal
-        file={discardTarget}
-        onCancel={() => setDiscardTarget(null)}
+        files={discardTargets}
+        onCancel={() => setDiscardTargets([])}
         onConfirm={handleDiscardConfirm}
       />
 

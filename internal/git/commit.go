@@ -541,7 +541,7 @@ func GetCommitFileContent(ctx context.Context, loc RepoLocation, hash, relPath s
 
 	var cmd *exec.Cmd
 	if loc.IsWSL {
-		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--cd", loc.LinuxPath, "--", "git", "cat-file", "blob", spec)
+		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--cd", loc.LinuxPath, "-e", "git", "cat-file", "blob", spec)
 	} else {
 		cmd = exec.CommandContext(ctx, "git", "cat-file", "blob", spec)
 		cmd.Dir = loc.Path

@@ -182,6 +182,25 @@ func SaveGitConfig(ctx context.Context, upd GitConfigUpdate) (OpResult, error) {
 	}, nil
 }
 
+// SetRepoConfigKey sets a single --local config key for a repository.
+func SetRepoConfigKey(ctx context.Context, repoPath, key, value string) (OpResult, error) {
+	loc := ParseRepoLocation(repoPath)
+	stdout, stderr, err := RunGit(ctx, loc, "config", "--local", key, value)
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		return OpResult{
+			Success: false,
+			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			Output:  combined,
+		}, nil
+	}
+	return OpResult{
+		Success: true,
+		Message: fmt.Sprintf("Set %s = %s", key, value),
+		Output:  combined,
+	}, nil
+}
+
 // ListSSHKeys discovers SSH private keys in Windows %USERPROFILE%\.ssh and optionally a WSL2 distro's ~/.ssh.
 func ListSSHKeys(ctx context.Context, distro string) []SSHKeyInfo {
 	var keys []SSHKeyInfo
@@ -218,7 +237,7 @@ func ListSSHKeys(ctx context.Context, distro string) []SSHKeyInfo {
   printf '%s\t%s\n' "$b" "$f"
 done
 `
-		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", strings.TrimSpace(distro), "--", "sh", "-s")
+		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", strings.TrimSpace(distro), "-e", "sh", "-s")
 		cmd.Stdin = strings.NewReader(script)
 		hideWindow(cmd)
 		if out, err := cmd.Output(); err == nil {

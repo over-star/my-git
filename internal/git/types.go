@@ -89,16 +89,17 @@ type DiffHunk struct {
 
 // FileDiff holds parsed diff output or binary size metadata.
 type FileDiff struct {
-	Path      string     `json:"path"`
-	OldPath   string     `json:"oldPath"`
-	IsBinary  bool       `json:"isBinary"`
-	OldSize   int64      `json:"oldSize"`
-	NewSize   int64      `json:"newSize"`
-	Additions int        `json:"additions"`
-	Deletions int        `json:"deletions"`
-	Hunks     []DiffHunk `json:"hunks"`
-	Truncated bool       `json:"truncated"`
-	RawError  string     `json:"rawError"`
+	Path       string     `json:"path"`
+	OldPath    string     `json:"oldPath"`
+	ModeChange string     `json:"modeChange"`
+	IsBinary   bool       `json:"isBinary"`
+	OldSize    int64      `json:"oldSize"`
+	NewSize    int64      `json:"newSize"`
+	Additions  int        `json:"additions"`
+	Deletions  int        `json:"deletions"`
+	Hunks      []DiffHunk `json:"hunks"`
+	Truncated  bool       `json:"truncated"`
+	RawError   string     `json:"rawError"`
 }
 
 // RefBadge represents a branch or tag pointing to a commit.

@@ -151,10 +151,22 @@ func (s *GitService) StageFile(repoPath, relPath string) error {
 	return git.StageFile(ctx, git.ParseRepoLocation(repoPath), relPath)
 }
 
+func (s *GitService) StageFiles(repoPath string, relPaths []string) error {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.StageFiles(ctx, git.ParseRepoLocation(repoPath), relPaths)
+}
+
 func (s *GitService) UnstageFile(repoPath, relPath string) error {
 	ctx, cancel := s.ctx()
 	defer cancel()
 	return git.UnstageFile(ctx, git.ParseRepoLocation(repoPath), relPath)
+}
+
+func (s *GitService) UnstageFiles(repoPath string, relPaths []string) error {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.UnstageFiles(ctx, git.ParseRepoLocation(repoPath), relPaths)
 }
 
 func (s *GitService) StageAll(repoPath string) error {
@@ -173,6 +185,12 @@ func (s *GitService) DiscardFile(repoPath, relPath string, isUntracked bool) err
 	ctx, cancel := s.ctx()
 	defer cancel()
 	return git.DiscardFile(ctx, git.ParseRepoLocation(repoPath), relPath, isUntracked)
+}
+
+func (s *GitService) DiscardFiles(repoPath string, tracked, untracked []string) error {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.DiscardFiles(ctx, git.ParseRepoLocation(repoPath), tracked, untracked)
 }
 
 func (s *GitService) GetWorkingDiff(repoPath, relPath string, staged, isUntracked, ignoreWhitespace bool) (git.FileDiff, error) {
@@ -446,6 +464,12 @@ func (s *GitService) SaveGitConfig(upd git.GitConfigUpdate) (git.OpResult, error
 	ctx, cancel := s.ctx()
 	defer cancel()
 	return git.SaveGitConfig(ctx, upd)
+}
+
+func (s *GitService) SetRepoConfigKey(repoPath, key, value string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.SetRepoConfigKey(ctx, repoPath, key, value)
 }
 
 func (s *GitService) ListSSHKeys(repoPath, distroOverride string) []git.SSHKeyInfo {

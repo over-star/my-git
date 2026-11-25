@@ -200,12 +200,12 @@ func CloneRepo(ctx context.Context, cloneID, repoURL, targetParent, folderName s
 		targetLinux := path.Join(parentLoc.LinuxPath, folderName)
 		destLoc = ParseRepoLocation(fmt.Sprintf("wsl://%s%s", parentLoc.Distro, targetLinux))
 		// Ensure parent dir exists
-		mk := exec.CommandContext(ctx, "wsl.exe", "-d", parentLoc.Distro, "--", "mkdir", "-p", parentLoc.LinuxPath)
+		mk := exec.CommandContext(ctx, "wsl.exe", "-d", parentLoc.Distro, "-e", "mkdir", "-p", parentLoc.LinuxPath)
 		hideWindow(mk)
 		_ = mk.Run()
 
 		sshCmd := resolveDefaultSSHCommand(ctx, parentLoc, true)
-		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", parentLoc.Distro, "--", "git", "clone", "--progress", repoURL, targetLinux)
+		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", parentLoc.Distro, "-e", "git", "clone", "--progress", repoURL, targetLinux)
 		env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C.UTF-8")
 		wslEnv := "GIT_TERMINAL_PROMPT/u:LC_ALL/u"
 		if sshCmd != "" {
@@ -388,7 +388,7 @@ func GetConflictFile(ctx context.Context, loc RepoLocation, relPath string) (Con
 func WriteRepoFile(ctx context.Context, loc RepoLocation, relPath string, content string) error {
 	if loc.IsWSL {
 		target := path.Join(loc.LinuxPath, relPath)
-		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--", "tee", target)
+		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "-e", "tee", target)
 		hideWindow(cmd)
 		cmd.Stdin = strings.NewReader(content)
 		if out, err := cmd.CombinedOutput(); err != nil {

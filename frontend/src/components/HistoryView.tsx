@@ -300,6 +300,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             setFileDiff({
               path: selectedFile,
               oldPath: "",
+              modeChange: "",
               isBinary: false,
               oldSize: 0,
               newSize: 0,
@@ -469,7 +470,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 p-2 gap-2 bg-[#f8fafc]">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 p-2 gap-2 bg-[#f8fafc]">
       {/* TOP HALF: Filter Toolbar + Commit DAG List */}
       <div className="flex-1 flex flex-col min-h-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
         {/* Filter bar */}
@@ -765,7 +766,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       </div>
 
       {/* BOTTOM HALF: Commit Metadata + Changed/All Files + Diff/Snapshot */}
-      <div className="h-[46%] min-h-[220px] flex gap-2 shrink-0">
+      <div className="h-[46%] min-h-[220px] min-w-0 flex gap-2 shrink-0">
         {/* Left: Metadata & Files */}
         <div className="w-[42%] min-w-[340px] flex flex-col bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
           {detailLoading ? (
@@ -954,7 +955,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
 
         {/* Right: Commit File Diff OR Snapshot File Viewer */}
-        <div className="flex-1 flex flex-col min-w-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
           <div className="h-9 px-3 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-mono text-[11px] font-semibold text-[#0b1c30] truncate">
@@ -1064,27 +1065,29 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               </div>
             </div>
           ) : (
-            <div className="flex-1 overflow-auto bg-white font-mono text-[12px] leading-[18px]">
+            <div className="flex-1 min-w-0 min-h-0 overflow-auto bg-white font-mono text-[12px] leading-[20px]">
               {snapshotContent.truncated && (
                 <div className="px-3 py-1 bg-[#fffbeb] border-b border-[#fde68a] text-[11px] text-[#b45309]">
                   Preview truncated to 512 KB (total size:{" "}
                   {formatBytes(snapshotContent.size)}).
                 </div>
               )}
-              <table className="w-full border-collapse">
-                <tbody>
-                  {snapshotContent.content.split("\n").map((line, i) => (
-                    <tr key={i} className="hover:bg-[#f8fafc]">
-                      <td className="w-12 px-2 text-right select-none text-[11px] text-[#94a3b8] bg-[#f8fafc] border-r border-[#e2e8f0]">
-                        {i + 1}
-                      </td>
-                      <td className="px-3 whitespace-pre select-text text-[#0b1c30]">
-                        {line}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="w-max min-w-full">
+                <table className="w-full border-collapse">
+                  <tbody>
+                    {snapshotContent.content.split("\n").map((line, i) => (
+                      <tr key={i} className="hover:bg-[#f8fafc]">
+                        <td className="w-12 min-w-[48px] px-2 text-right select-none text-[11px] text-[#94a3b8] bg-[#f8fafc] border-r border-[#e2e8f0]">
+                          {i + 1}
+                        </td>
+                        <td className="px-3 pr-6 whitespace-pre select-text text-[#0b1c30]">
+                          {line}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

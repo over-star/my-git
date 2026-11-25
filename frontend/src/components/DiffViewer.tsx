@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { FileArchive, AlertCircle } from "lucide-react";
+import { FileArchive, AlertCircle, ShieldAlert } from "lucide-react";
 import type { DiffLine, FileDiff } from "../../bindings/gitpulse/internal/git/models";
 import { formatBytes } from "./StatusBadge";
 
@@ -8,6 +8,7 @@ interface DiffViewerProps {
   loading?: boolean;
   mode: "unified" | "split";
   emptyMessage?: string;
+  onDisableFileMode?: () => void;
 }
 
 interface SplitRow {
@@ -58,6 +59,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   loading,
   mode,
   emptyMessage = "Select a file to inspect its diff",
+  onDisableFileMode,
 }) => {
   const hunks = diff?.hunks ?? [];
 
@@ -139,28 +141,57 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   if (hunks.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[#94a3b8] bg-white text-xs">
-        No textual differences in this file (mode change, empty file, or whitespace ignored).
+      <div className="flex-1 flex items-center justify-center bg-white p-6">
+        <div className="max-w-md w-full rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-5 text-center flex flex-col items-center gap-2">
+          <ShieldAlert className="w-7 h-7 text-[#d97706]" />
+          <div className="text-[13px] font-semibold text-[#0b1c30]">
+            {diff.modeChange
+              ? `File Mode Changed (${diff.modeChange})`
+              : "No Textual Content Differences"}
+          </div>
+          <p className="text-xs text-[#64748b] leading-relaxed">
+            {diff.modeChange
+              ? "Git detected an executable permission change without content edits. This commonly happens across Windows / WSL2 filesystems."
+              : "File content matches HEAD, or only line endings (CRLF/LF) / file permissions differ (common between Windows and WSL2)."}
+          </p>
+          {onDisableFileMode && (
+            <button
+              onClick={onDisableFileMode}
+              className="mt-1 px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-[11px] font-medium cursor-pointer"
+            >
+              Ignore File Permissions (core.filemode = false)
+            </button>
+          )}
+        </div>
       </div>
     );
   }
 
   if (mode === "split") {
     return (
-      <div className="flex-1 overflow-auto bg-white font-mono text-[12px] leading-[18px]">
-        <div className="min-w-[680px]">
-          {splitHunks.map((hunk, hi) => (
-            <div key={hi}>
-              <div className="sticky top-0 z-10 px-3 py-1 bg-[#f8fafc] border-y border-[#e2e8f0] text-[11px] text-[#64748b] select-text">
-                {hunk.header}
-              </div>
-              <table className="w-full border-collapse table-fixed">
-                <tbody>
+      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-white font-mono text-[12px] leading-[20px]">
+        <div className="grid grid-cols-2 min-w-0 divide-x divide-[#cbd5e1]">
+          {/* Left (Old) */}
+          <div className="min-w-0 overflow-x-auto">
+            <div className="w-max min-w-full">
+              {splitHunks.map((hunk, hi) => (
+                <div key={hi}>
+                  <div className="sticky top-0 z-10 h-[26px] flex items-center px-3 bg-[#f8fafc] border-y border-[#e2e8f0] text-[11px] text-[#64748b] select-text whitespace-pre">
+                    {hunk.header}
+                  </div>
                   {hunk.rows.map((row, ri) => (
-                    <tr key={ri} className="align-top">
-                      {/* Left (Old) */}
-                      <td
-                        className={`w-10 px-1.5 text-right select-none text-[11px] border-r border-[#e2e8f0] ${
+                    <div
+                      key={ri}
+                      className={`flex h-[20px] items-center ${
+                        row.left?.type === "del"
+                          ? "bg-[#fef2f2] text-[#7f1d1d]"
+                          : row.left
+                          ? "bg-white text-[#0b1c30]"
+                          : "bg-[#f8fafc]"
+                      }`}
+                    >
+                      <span
+                        className={`w-10 min-w-[40px] shrink-0 h-full px-1.5 text-right select-none text-[11px] border-r border-[#e2e8f0] ${
                           row.left?.type === "del"
                             ? "bg-[#fee2e2] text-[#dc2626]"
                             : row.left
@@ -169,31 +200,47 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                         }`}
                       >
                         {row.left ? row.left.oldLine || "" : ""}
-                      </td>
-                      <td
-                        className={`w-1/2 px-2 whitespace-pre overflow-x-auto border-r border-[#cbd5e1] select-text ${
-                          row.left?.type === "del"
-                            ? "bg-[#fef2f2] text-[#7f1d1d]"
-                            : row.left
-                            ? "bg-white text-[#0b1c30]"
-                            : "bg-[#f8fafc]"
-                        }`}
-                      >
+                      </span>
+                      <span className="px-2 pr-6 whitespace-pre select-text">
                         {row.left ? (
-                          <span>
+                          <>
                             <span className="inline-block w-3 select-none opacity-70">
                               {row.left.type === "del" ? "-" : " "}
                             </span>
                             {row.left.content}
-                          </span>
+                          </>
                         ) : (
                           ""
                         )}
-                      </td>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
 
-                      {/* Right (New) */}
-                      <td
-                        className={`w-10 px-1.5 text-right select-none text-[11px] border-r border-[#e2e8f0] ${
+          {/* Right (New) */}
+          <div className="min-w-0 overflow-x-auto">
+            <div className="w-max min-w-full">
+              {splitHunks.map((hunk, hi) => (
+                <div key={hi}>
+                  <div className="sticky top-0 z-10 h-[26px] flex items-center px-3 bg-[#f8fafc] border-y border-[#e2e8f0] text-[11px] text-[#64748b] select-text whitespace-pre">
+                    {hunk.header}
+                  </div>
+                  {hunk.rows.map((row, ri) => (
+                    <div
+                      key={ri}
+                      className={`flex h-[20px] items-center ${
+                        row.right?.type === "add"
+                          ? "bg-[#f0fdf4] text-[#14532d]"
+                          : row.right
+                          ? "bg-white text-[#0b1c30]"
+                          : "bg-[#f8fafc]"
+                      }`}
+                    >
+                      <span
+                        className={`w-10 min-w-[40px] shrink-0 h-full px-1.5 text-right select-none text-[11px] border-r border-[#e2e8f0] ${
                           row.right?.type === "add"
                             ? "bg-[#dcfce7] text-[#16a34a]"
                             : row.right
@@ -202,41 +249,33 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                         }`}
                       >
                         {row.right ? row.right.newLine || "" : ""}
-                      </td>
-                      <td
-                        className={`w-1/2 px-2 whitespace-pre overflow-x-auto select-text ${
-                          row.right?.type === "add"
-                            ? "bg-[#f0fdf4] text-[#14532d]"
-                            : row.right
-                            ? "bg-white text-[#0b1c30]"
-                            : "bg-[#f8fafc]"
-                        }`}
-                      >
+                      </span>
+                      <span className="px-2 pr-6 whitespace-pre select-text">
                         {row.right ? (
-                          <span>
+                          <>
                             <span className="inline-block w-3 select-none opacity-70">
                               {row.right.type === "add" ? "+" : " "}
                             </span>
                             {row.right.content}
-                          </span>
+                          </>
                         ) : (
                           ""
                         )}
-                      </td>
-                    </tr>
+                      </span>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-auto bg-white font-mono text-[12px] leading-[18px]">
-      <div className="min-w-fit">
+    <div className="flex-1 min-w-0 min-h-0 overflow-auto bg-white font-mono text-[12px] leading-[20px]">
+      <div className="w-max min-w-full">
         {hunks.map((hunk, hi) => (
           <div key={hi}>
             <div className="sticky top-0 z-10 px-3 py-1 bg-[#f8fafc] border-y border-[#e2e8f0] text-[11px] text-[#64748b] select-text">
@@ -259,7 +298,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                       }
                     >
                       <td
-                        className={`w-10 px-1.5 text-right select-none text-[11px] border-r border-[#e2e8f0] ${
+                        className={`w-10 min-w-[40px] px-1.5 text-right select-none text-[11px] border-r border-[#e2e8f0] ${
                           isAdd
                             ? "bg-[#dcfce7] text-[#16a34a]"
                             : isDel
@@ -270,7 +309,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                         {line.oldLine > 0 ? line.oldLine : ""}
                       </td>
                       <td
-                        className={`w-10 px-1.5 text-right select-none text-[11px] border-r border-[#e2e8f0] ${
+                        className={`w-10 min-w-[40px] px-1.5 text-right select-none text-[11px] border-r border-[#e2e8f0] ${
                           isAdd
                             ? "bg-[#dcfce7] text-[#16a34a]"
                             : isDel
@@ -281,7 +320,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                         {line.newLine > 0 ? line.newLine : ""}
                       </td>
                       <td
-                        className={`w-5 text-center select-none font-bold ${
+                        className={`w-5 min-w-[20px] text-center select-none font-bold ${
                           isAdd
                             ? "text-[#16a34a]"
                             : isDel
@@ -291,7 +330,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                       >
                         {isAdd ? "+" : isDel ? "-" : " "}
                       </td>
-                      <td className="pr-4 whitespace-pre select-text">
+                      <td className="pr-6 whitespace-pre select-text">
                         {line.content}
                       </td>
                     </tr>

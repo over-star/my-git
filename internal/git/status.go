@@ -258,7 +258,7 @@ func gitPathExists(ctx context.Context, loc RepoLocation, relOrAbs string) bool 
 		if !strings.HasPrefix(target, "/") {
 			target = path.Join(loc.LinuxPath, target)
 		}
-		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--", "test", "-e", target)
+		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "-e", "test", "-e", target)
 		hideWindow(cmd)
 		return cmd.Run() == nil
 	}
@@ -272,7 +272,16 @@ func gitPathExists(ctx context.Context, loc RepoLocation, relOrAbs string) bool 
 
 // StageFile stages a single file.
 func StageFile(ctx context.Context, loc RepoLocation, relPath string) error {
-	_, stderr, err := RunGit(ctx, loc, "add", "--", relPath)
+	return StageFiles(ctx, loc, []string{relPath})
+}
+
+// StageFiles stages multiple files in a single git command.
+func StageFiles(ctx context.Context, loc RepoLocation, relPaths []string) error {
+	if len(relPaths) == 0 {
+		return nil
+	}
+	args := append([]string{"add", "--"}, relPaths...)
+	_, stderr, err := RunGit(ctx, loc, args...)
 	if err != nil {
 		return fmt.Errorf("stage failed: %s (%w)", strings.TrimSpace(stderr), err)
 	}
@@ -281,15 +290,22 @@ func StageFile(ctx context.Context, loc RepoLocation, relPath string) error {
 
 // UnstageFile unstages a single file.
 func UnstageFile(ctx context.Context, loc RepoLocation, relPath string) error {
-	// Check if HEAD exists; on initial commit without HEAD use git rm --cached
-	_, _, headErr := RunGit(ctx, loc, "rev-parse", "--verify", "HEAD")
-	var stderr string
-	var err error
-	if headErr != nil {
-		_, stderr, err = RunGit(ctx, loc, "rm", "--cached", "-r", "--", relPath)
-	} else {
-		_, stderr, err = RunGit(ctx, loc, "reset", "HEAD", "--", relPath)
+	return UnstageFiles(ctx, loc, []string{relPath})
+}
+
+// UnstageFiles unstages multiple files in a single git command.
+func UnstageFiles(ctx context.Context, loc RepoLocation, relPaths []string) error {
+	if len(relPaths) == 0 {
+		return nil
 	}
+	_, _, headErr := RunGit(ctx, loc, "rev-parse", "--verify", "HEAD")
+	var args []string
+	if headErr != nil {
+		args = append([]string{"rm", "--cached", "-r", "--"}, relPaths...)
+	} else {
+		args = append([]string{"reset", "HEAD", "--"}, relPaths...)
+	}
+	_, stderr, err := RunGit(ctx, loc, args...)
 	if err != nil {
 		return fmt.Errorf("unstage failed: %s (%w)", strings.TrimSpace(stderr), err)
 	}
@@ -324,15 +340,26 @@ func UnstageAll(ctx context.Context, loc RepoLocation) error {
 // DiscardFile discards unstaged modifications or deletes an untracked file.
 func DiscardFile(ctx context.Context, loc RepoLocation, relPath string, isUntracked bool) error {
 	if isUntracked {
-		_, stderr, err := RunGit(ctx, loc, "clean", "-f", "-d", "--", relPath)
-		if err != nil {
-			return fmt.Errorf("failed to remove untracked file: %s (%w)", strings.TrimSpace(stderr), err)
-		}
-		return nil
+		return DiscardFiles(ctx, loc, nil, []string{relPath})
 	}
-	_, stderr, err := RunGit(ctx, loc, "checkout", "--", relPath)
-	if err != nil {
-		return fmt.Errorf("discard failed: %s (%w)", strings.TrimSpace(stderr), err)
+	return DiscardFiles(ctx, loc, []string{relPath}, nil)
+}
+
+// DiscardFiles discards multiple tracked modifications and/or removes untracked files.
+func DiscardFiles(ctx context.Context, loc RepoLocation, tracked []string, untracked []string) error {
+	if len(untracked) > 0 {
+		args := append([]string{"clean", "-f", "-d", "--"}, untracked...)
+		_, stderr, err := RunGit(ctx, loc, args...)
+		if err != nil {
+			return fmt.Errorf("failed to remove untracked files: %s (%w)", strings.TrimSpace(stderr), err)
+		}
+	}
+	if len(tracked) > 0 {
+		args := append([]string{"checkout", "--"}, tracked...)
+		_, stderr, err := RunGit(ctx, loc, args...)
+		if err != nil {
+			return fmt.Errorf("discard failed: %s (%w)", strings.TrimSpace(stderr), err)
+		}
 	}
 	return nil
 }
@@ -415,14 +442,14 @@ func buildUntrackedDiff(ctx context.Context, loc RepoLocation, relPath string) (
 func readRepoFileBytes(ctx context.Context, loc RepoLocation, relPath string, maxBytes int64) ([]byte, int64, error) {
 	if loc.IsWSL {
 		target := path.Join(loc.LinuxPath, relPath)
-		sizeCmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--", "stat", "-c", "%s", target)
+		sizeCmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "-e", "stat", "-c", "%s", target)
 		hideWindow(sizeCmd)
 		sOut, err := sizeCmd.Output()
 		if err != nil {
 			return nil, 0, fmt.Errorf("cannot stat file: %w", err)
 		}
 		size, _ := strconv.ParseInt(strings.TrimSpace(string(sOut)), 10, 64)
-		readCmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--", "head", "-c", strconv.FormatInt(maxBytes, 10), target)
+		readCmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "-e", "head", "-c", strconv.FormatInt(maxBytes, 10), target)
 		hideWindow(readCmd)
 		data, err := readCmd.Output()
 		return data, size, err
@@ -476,6 +503,7 @@ func ParseUnifiedDiff(relPath string, raw string) FileDiff {
 	}
 	var currentHunk *DiffHunk
 	oldLine, newLine := 0, 0
+	oldMode, newMode := "", ""
 
 	for _, line := range lines {
 		if strings.HasPrefix(line, "Binary files ") || strings.HasPrefix(line, "GIT binary patch") {
@@ -486,10 +514,19 @@ func ParseUnifiedDiff(relPath string, raw string) FileDiff {
 			fd.OldPath = strings.TrimPrefix(line, "rename from ")
 			continue
 		}
+		if strings.HasPrefix(line, "old mode ") {
+			oldMode = strings.TrimPrefix(line, "old mode ")
+			continue
+		}
+		if strings.HasPrefix(line, "new mode ") {
+			newMode = strings.TrimPrefix(line, "new mode ")
+			if oldMode != "" && newMode != "" {
+				fd.ModeChange = oldMode + " → " + newMode
+			}
+			continue
+		}
 		if strings.HasPrefix(line, "diff --git ") ||
 			strings.HasPrefix(line, "index ") ||
-			strings.HasPrefix(line, "old mode ") ||
-			strings.HasPrefix(line, "new mode ") ||
 			strings.HasPrefix(line, "new file mode ") ||
 			strings.HasPrefix(line, "deleted file mode ") ||
 			strings.HasPrefix(line, "similarity index ") ||

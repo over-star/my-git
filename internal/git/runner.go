@@ -110,7 +110,7 @@ func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, args ...s
 		if !skipCD && loc.LinuxPath != "" {
 			wslArgs = append(wslArgs, "--cd", loc.LinuxPath)
 		}
-		wslArgs = append(wslArgs, "--", "git")
+		wslArgs = append(wslArgs, "-e", "git")
 		wslArgs = append(wslArgs, fullArgs...)
 		cmd = exec.CommandContext(ctx, "wsl.exe", wslArgs...)
 		env := append(os.Environ(),
@@ -186,7 +186,7 @@ func resolveDefaultSSHCommand(ctx context.Context, loc RepoLocation, skipCD bool
 		}
 		// Otherwise fall back to Windows OpenSSH so WSL2 repos can use Windows default ~/.ssh keys
 		winSSH := "/mnt/c/Windows/System32/OpenSSH/ssh.exe"
-		chk := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--", "test", "-x", winSSH)
+		chk := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "-e", "test", "-x", winSSH)
 		hideWindow(chk)
 		if chk.Run() == nil {
 			return winSSH + " -o StrictHostKeyChecking=accept-new"
@@ -209,7 +209,7 @@ func hasConfiguredSSHCommand(ctx context.Context, loc RepoLocation, skipCD bool)
 		if !skipCD && loc.LinuxPath != "" {
 			args = append(args, "--cd", loc.LinuxPath)
 		}
-		args = append(args, "--", "git", "config", "--get", "core.sshCommand")
+		args = append(args, "-e", "git", "config", "--get", "core.sshCommand")
 		cmd = exec.CommandContext(ctx, "wsl.exe", args...)
 	} else {
 		cmd = exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
@@ -230,7 +230,7 @@ func wslHasSSHKeys(ctx context.Context, distro string) bool {
 done
 exit 1
 `
-	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-s")
+	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "-e", "sh", "-s")
 	cmd.Stdin = strings.NewReader(script)
 	hideWindow(cmd)
 	return cmd.Run() == nil
@@ -296,7 +296,7 @@ func InitRepo(ctx context.Context, rawPath string) (RepoLocation, error) {
 			return loc, fmt.Errorf("failed to create directory: %w", err)
 		}
 	} else {
-		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--", "mkdir", "-p", loc.LinuxPath)
+		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "-e", "mkdir", "-p", loc.LinuxPath)
 		hideWindow(cmd)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return loc, fmt.Errorf("failed to create WSL directory: %s (%w)", strings.TrimSpace(string(out)), err)
@@ -339,7 +339,7 @@ func ListWSLDistros(ctx context.Context) ([]WSLDistro, error) {
 }
 
 func getWSLHome(ctx context.Context, distro string) string {
-	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-s")
+	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "-e", "sh", "-s")
 	cmd.Stdin = strings.NewReader(`printf '%s' "$HOME"`)
 	hideWindow(cmd)
 	out, err := cmd.Output()
@@ -379,7 +379,7 @@ for d in * .[!.]*; do
 done
 `
 
-	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--cd", target, "--", "sh", "-s")
+	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--cd", target, "-e", "sh", "-s")
 	cmd.Stdin = strings.NewReader(script)
 	hideWindow(cmd)
 	out, err := cmd.Output()
@@ -485,7 +485,7 @@ func OpenInEditor(loc RepoLocation, relPath string) error {
 			target = path.Join(loc.LinuxPath, relPath)
 		}
 		// Try WSL code CLI first, then Windows VS Code / Explorer fallback
-		cmd := exec.Command("wsl.exe", "-d", loc.Distro, "--", "sh", "-c", `command -v code >/dev/null 2>&1 && code "$1"`, "sh", target)
+		cmd := exec.Command("wsl.exe", "-d", loc.Distro, "-e", "sh", "-c", `command -v code >/dev/null 2>&1 && code "$1"`, "sh", target)
 		hideWindow(cmd)
 		if err := cmd.Start(); err == nil {
 			return nil

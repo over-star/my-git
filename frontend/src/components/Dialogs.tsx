@@ -14,12 +14,14 @@ import {
 import type { CommitItem, FileStatus } from "../../bindings/gitpulse/internal/git/models";
 
 export const DiscardConfirmModal: React.FC<{
-  file: FileStatus | null;
+  files: FileStatus[];
   onCancel: () => void;
-  onConfirm: (file: FileStatus) => void;
-}> = ({ file, onCancel, onConfirm }) => {
-  if (!file) return null;
-  const isUntracked = file.status === "?";
+  onConfirm: (files: FileStatus[]) => void;
+}> = ({ files, onCancel, onConfirm }) => {
+  if (!files || files.length === 0) return null;
+  const single = files.length === 1 ? files[0] : null;
+  const isSingleUntracked = single?.status === "?";
+  const hasUntracked = files.some((f) => f.status === "?");
   return (
     <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white border border-[#cbd5e1] rounded-xl shadow-xl p-4 flex flex-col gap-3">
@@ -27,17 +29,29 @@ export const DiscardConfirmModal: React.FC<{
           <div className="w-8 h-8 rounded-full bg-[#fef2f2] text-[#dc2626] flex items-center justify-center shrink-0">
             <AlertTriangle className="w-4 h-4" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-[#0b1c30]">
-              {isUntracked ? "Delete Untracked File?" : "Discard Working Changes?"}
+              {single
+                ? isSingleUntracked
+                  ? "Delete Untracked File?"
+                  : "Discard Working Changes?"
+                : `Discard ${files.length} Selected Files?`}
             </h3>
             <p className="text-xs text-[#64748b] mt-1">
-              {isUntracked
-                ? "This untracked file will be permanently deleted from disk:"
-                : "All unstaged changes in this file will be permanently lost:"}
+              {single
+                ? isSingleUntracked
+                  ? "This untracked file will be permanently deleted from disk:"
+                  : "All unstaged changes in this file will be permanently lost:"
+                : hasUntracked
+                ? "Unstaged changes will be discarded and untracked files among the selection will be permanently deleted:"
+                : "All unstaged changes in the selected files will be permanently lost:"}
             </p>
-            <div className="mt-2 px-2 py-1 rounded bg-[#f8fafc] border border-[#e2e8f0] font-mono text-[11px] text-[#0b1c30] break-all">
-              {file.path}
+            <div className="mt-2 px-2 py-1.5 rounded bg-[#f8fafc] border border-[#e2e8f0] font-mono text-[11px] text-[#0b1c30] max-h-36 overflow-y-auto flex flex-col gap-0.5">
+              {files.map((f) => (
+                <div key={f.path} className="break-all">
+                  {f.path}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -49,10 +63,14 @@ export const DiscardConfirmModal: React.FC<{
             Cancel
           </button>
           <button
-            onClick={() => onConfirm(file)}
+            onClick={() => onConfirm(files)}
             className="px-3 py-1.5 rounded bg-[#dc2626] hover:bg-[#b91c1c] text-white text-xs font-medium cursor-pointer"
           >
-            {isUntracked ? "Delete File" : "Discard Changes"}
+            {single
+              ? isSingleUntracked
+                ? "Delete File"
+                : "Discard Changes"
+              : `Discard ${files.length} Files`}
           </button>
         </div>
       </div>

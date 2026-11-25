@@ -60,6 +60,10 @@ export function DiscardFile(repoPath: string, relPath: string, isUntracked: bool
     return $Call.ByID(3427842007, repoPath, relPath, isUntracked);
 }
 
+export function DiscardFiles(repoPath: string, tracked: string[] | null, untracked: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(1192302380, repoPath, tracked, untracked);
+}
+
 export function Fetch(repoPath: string): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(3105763379, repoPath);
 }
@@ -216,12 +220,20 @@ export function SetRemoteURL(repoPath: string, name: string, newURL: string): $C
     return $Call.ByID(772338218, repoPath, name, newURL);
 }
 
+export function SetRepoConfigKey(repoPath: string, key: string, value: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(1723614848, repoPath, key, value);
+}
+
 export function StageAll(repoPath: string): $CancellablePromise<void> {
     return $Call.ByID(4059387404, repoPath);
 }
 
 export function StageFile(repoPath: string, relPath: string): $CancellablePromise<void> {
     return $Call.ByID(4185947995, repoPath, relPath);
+}
+
+export function StageFiles(repoPath: string, relPaths: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(3980930040, repoPath, relPaths);
 }
 
 export function StashApply(repoPath: string, ref: string): $CancellablePromise<git$0.OpResult> {
@@ -258,4 +270,8 @@ export function UnstageAll(repoPath: string): $CancellablePromise<void> {
 
 export function UnstageFile(repoPath: string, relPath: string): $CancellablePromise<void> {
     return $Call.ByID(3130933074, repoPath, relPath);
+}
+
+export function UnstageFiles(repoPath: string, relPaths: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(3894239475, repoPath, relPaths);
 }
