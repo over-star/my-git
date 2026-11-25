@@ -20,11 +20,16 @@ import {
   AlertTriangle,
   Settings,
   User,
+  ChevronDown,
+  Copy,
+  Check,
+  Layers,
 } from "lucide-react";
 import type {
   BranchInfo,
   CommitItem,
   FileStatus,
+  RemoteInfo,
   RepoLocation,
   RepoStatus,
   StashItem,
@@ -43,7 +48,10 @@ import {
   CreateTagModal,
   DeleteBranchModal,
   DeleteRemoteBranchModal,
+  DeleteRemoteTagModal,
+  DeleteTagModal,
   DiscardConfirmModal,
+  PushTagModal,
   RenameBranchModal,
   ResetCommitModal,
   RevertCommitModal,
@@ -68,9 +76,16 @@ export function App() {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [tags, setTags] = useState<TagInfo[]>([]);
   const [stashes, setStashes] = useState<StashItem[]>([]);
+  const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [globalGitVer, setGlobalGitVer] = useState("");
   const [quickFilter, setQuickFilter] = useState("");
+  const [repoSwitcherOpen, setRepoSwitcherOpen] = useState(false);
+  const [tabCtxMenu, setTabCtxMenu] = useState<{
+    x: number;
+    y: number;
+    repo: RepoLocation;
+  } | null>(null);
 
   // Remote loading states
   const [remoteBusy, setRemoteBusy] = useState<"fetch" | "pull" | "push" | null>(null);
@@ -95,6 +110,7 @@ export function App() {
   const [checkoutConflict, setCheckoutConflict] = useState<{
     name: string;
     isRemote: boolean;
+    kind?: "branch" | "tag";
     errorMessage: string;
   } | null>(null);
   const [stashModalOpen, setStashModalOpen] = useState(false);
@@ -102,6 +118,10 @@ export function App() {
     open: false,
     target: "",
   });
+  const [deleteTagTarget, setDeleteTagTarget] = useState<TagInfo | null>(null);
+  const [deleteRemoteTagTarget, setDeleteRemoteTagTarget] = useState<TagInfo | null>(null);
+  const [pushTagTarget, setPushTagTarget] = useState<TagInfo | null>(null);
+  const [tagOpBusy, setTagOpBusy] = useState(false);
   const [revertTarget, setRevertTarget] = useState<CommitItem | null>(null);
   const [resetTarget, setResetTarget] = useState<CommitItem | null>(null);
   const [gitConfigModal, setGitConfigModal] = useState<{
@@ -131,32 +151,42 @@ export function App() {
 
   const activeRepo = tabs.find((t) => t.path === activePath) ?? null;
 
+  const refreshSeqRef = React.useRef(0);
+
   const refreshRepo = useCallback(
     async (repoPath?: string) => {
       const target = repoPath ?? activePath;
       if (!target) return;
+      const seq = ++refreshSeqRef.current;
       setRefreshing(true);
       try {
-        const [st, br, tg, sh, cfg] = await Promise.all([
+        const [st, br, tg, sh, rm, cfg] = await Promise.all([
           GitService.GetStatus(target),
           GitService.ListBranches(target),
           GitService.ListTags(target),
           GitService.ListStashes(target),
+          GitService.ListRemotes(target).catch(() => [] as RemoteInfo[]),
           GitService.GetGitConfig(target, ""),
         ]);
+        if (seq !== refreshSeqRef.current) return;
         setStatus(st);
         setBranches(br ?? []);
         setTags(tg ?? []);
         setStashes(sh ?? []);
+        setRemotes(rm ?? []);
         setEffectiveAuthor({
           name: cfg?.effective?.userName ?? "",
           email: cfg?.effective?.userEmail ?? "",
         });
         setHistoryRefreshKey((k) => k + 1);
       } catch (err) {
-        notify("error", `Refresh failed: ${err}`);
+        if (seq === refreshSeqRef.current) {
+          notify("error", `Refresh failed: ${err}`);
+        }
       } finally {
-        setRefreshing(false);
+        if (seq === refreshSeqRef.current) {
+          setRefreshing(false);
+        }
       }
     },
     [activePath, notify]
@@ -206,15 +236,35 @@ export function App() {
   // Refresh whenever activePath changes
   useEffect(() => {
     setHistoryBranch("__ALL__");
+    setStatus(null);
+    setBranches([]);
+    setTags([]);
+    setStashes([]);
+    setRemotes([]);
+    setRepoSwitcherOpen(false);
+    setTabCtxMenu(null);
     if (activePath) {
       refreshRepo(activePath);
-    } else {
-      setStatus(null);
-      setBranches([]);
-      setTags([]);
-      setStashes([]);
     }
   }, [activePath]);
+
+  // Close repo switcher or tab context menu on outside click / Escape
+  useEffect(() => {
+    if (!repoSwitcherOpen && !tabCtxMenu) return;
+    const close = () => {
+      setRepoSwitcherOpen(false);
+      setTabCtxMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [repoSwitcherOpen, tabCtxMenu]);
 
   // Auto-refresh on window focus
   useEffect(() => {
@@ -254,8 +304,7 @@ export function App() {
     refreshRepo(loc.path);
   };
 
-  const handleCloseTab = (e: React.MouseEvent, repoPath: string) => {
-    e.stopPropagation();
+  const closeTabByPath = (repoPath: string) => {
     setTabs((prev) => {
       const next = prev.filter((t) => t.path !== repoPath);
       if (activePath === repoPath) {
@@ -264,6 +313,42 @@ export function App() {
       }
       return next;
     });
+  };
+
+  const closeOtherTabs = (keepPath: string) => {
+    setTabs((prev) => prev.filter((t) => t.path === keepPath));
+    setActivePath(keepPath);
+  };
+
+  const handleCloseTab = (e: React.MouseEvent, repoPath: string) => {
+    e.stopPropagation();
+    closeTabByPath(repoPath);
+  };
+
+  const promptHttpsRemoteIfNeeded = async (
+    repoPath: string,
+    errorMessage: string,
+    preferredRemote?: string
+  ): Promise<boolean> => {
+    const list = await GitService.ListRemotes(repoPath).catch(() => []);
+    const target = (list ?? []).find((r) => {
+      if (preferredRemote && r.name !== preferredRemote) return false;
+      const u = (r.pushUrl || r.fetchUrl || "").toLowerCase();
+      return u.startsWith("https://") || u.startsWith("http://");
+    });
+    const sshCandidate = target
+      ? httpsToSshUrl(target.pushUrl || target.fetchUrl)
+      : null;
+    if (target && sshCandidate) {
+      setHttpsRemotePrompt({
+        remoteName: target.name,
+        currentUrl: target.pushUrl || target.fetchUrl,
+        sshUrl: sshCandidate,
+        errorMessage,
+      });
+      return true;
+    }
+    return false;
   };
 
   // --- Remote Actions ---
@@ -283,25 +368,15 @@ export function App() {
       } else if (res.errorCode === "CONFLICT") {
         notify("error", "Pull resulted in merge conflicts! Resolve them in Conflict Resolver.");
         setView("conflicts");
-      } else if (op === "push" && res.errorCode === "HTTPS_REMOTE") {
-        const remotes = await GitService.ListRemotes(activeRepo.path).catch(() => []);
-        const target = (remotes ?? []).find((r) => {
-          const u = (r.pushUrl || r.fetchUrl || "").toLowerCase();
-          return u.startsWith("https://") || u.startsWith("http://");
-        });
-        const sshCandidate = target
-          ? httpsToSshUrl(target.pushUrl || target.fetchUrl)
-          : null;
-        if (target && sshCandidate) {
-          setHttpsRemotePrompt({
-            remoteName: target.name,
-            currentUrl: target.pushUrl || target.fetchUrl,
-            sshUrl: sshCandidate,
-            errorMessage: res.message || "HTTPS push failed",
-          });
-        } else {
-          notify("error", res.message || "Push failed");
-        }
+      } else if (
+        op === "push" &&
+        res.errorCode === "HTTPS_REMOTE" &&
+        (await promptHttpsRemoteIfNeeded(
+          activeRepo.path,
+          res.message || "HTTPS push failed"
+        ))
+      ) {
+        // Modal displayed
       } else {
         notify("error", res.message || `${op} failed`);
       }
@@ -313,7 +388,7 @@ export function App() {
     }
   };
 
-  // --- Branch & Stash Actions ---
+  // --- Branch, Tag & Stash Actions ---
   const handleCheckout = async (name: string, isRemote: boolean) => {
     if (!activeRepo) return;
     try {
@@ -325,6 +400,7 @@ export function App() {
         setCheckoutConflict({
           name,
           isRemote,
+          kind: "branch",
           errorMessage: res.output || res.message,
         });
       } else {
@@ -335,7 +411,33 @@ export function App() {
     }
   };
 
-  const handleStashAndCheckout = async (name: string, isRemote: boolean) => {
+  const handleCheckoutTag = async (tagName: string) => {
+    if (!activeRepo) return;
+    try {
+      const res = await GitService.CheckoutTag(activeRepo.path, tagName);
+      if (res.success) {
+        notify("success", res.message);
+        await refreshRepo(activeRepo.path);
+      } else if (res.errorCode === "DIRTY_WORKTREE") {
+        setCheckoutConflict({
+          name: tagName,
+          isRemote: false,
+          kind: "tag",
+          errorMessage: res.output || res.message,
+        });
+      } else {
+        notify("error", res.message || "Checkout tag failed");
+      }
+    } catch (err) {
+      notify("error", String(err));
+    }
+  };
+
+  const handleStashAndCheckout = async (
+    name: string,
+    isRemote: boolean,
+    kind: "branch" | "tag" = "branch"
+  ) => {
     if (!activeRepo) return;
     setCheckoutConflict(null);
     try {
@@ -348,9 +450,12 @@ export function App() {
         notify("error", stRes.message);
         return;
       }
-      const ckRes = await GitService.CheckoutBranch(activeRepo.path, name, isRemote);
+      const ckRes =
+        kind === "tag"
+          ? await GitService.CheckoutTag(activeRepo.path, name)
+          : await GitService.CheckoutBranch(activeRepo.path, name, isRemote);
       if (ckRes.success) {
-        notify("success", `Stashed changes and switched to ${name}`);
+        notify("success", `Stashed changes and checked out ${name}`);
       } else {
         notify("error", ckRes.message);
       }
@@ -519,6 +624,128 @@ export function App() {
     }
   };
 
+  const executePushTag = async (tagName: string, remoteName: string) => {
+    if (!activeRepo) return;
+    setTagOpBusy(true);
+    try {
+      const res = await GitService.PushTag(activeRepo.path, remoteName, tagName);
+      setPushTagTarget(null);
+      if (res.success) {
+        notify("success", res.message);
+        await refreshRepo(activeRepo.path);
+      } else if (
+        res.errorCode === "HTTPS_REMOTE" &&
+        (await promptHttpsRemoteIfNeeded(
+          activeRepo.path,
+          res.message || "Push tag failed",
+          remoteName
+        ))
+      ) {
+        // HTTPS prompt opened
+      } else {
+        notify("error", res.message || "Push tag failed");
+      }
+    } catch (err) {
+      notify("error", String(err));
+    } finally {
+      setTagOpBusy(false);
+    }
+  };
+
+  const handleRequestPushTag = (tag: TagInfo) => {
+    if (remotes.length === 0) {
+      notify("error", "No remote configured for this repository");
+      return;
+    }
+    if (remotes.length === 1) {
+      executePushTag(tag.name, remotes[0].name);
+      return;
+    }
+    setPushTagTarget(tag);
+  };
+
+  const handleDeleteTagConfirm = async (
+    tagName: string,
+    alsoRemote: boolean,
+    remoteName: string
+  ) => {
+    if (!activeRepo) return;
+    setTagOpBusy(true);
+    try {
+      const res = await GitService.DeleteTag(activeRepo.path, tagName);
+      if (!res.success) {
+        setDeleteTagTarget(null);
+        notify("error", res.message || "Delete tag failed");
+        return;
+      }
+      if (alsoRemote) {
+        const remRes = await GitService.DeleteRemoteTag(
+          activeRepo.path,
+          remoteName,
+          tagName
+        );
+        setDeleteTagTarget(null);
+        if (remRes.success) {
+          notify("success", `Deleted tag ${tagName} locally and on ${remoteName}`);
+        } else if (
+          remRes.errorCode === "HTTPS_REMOTE" &&
+          (await promptHttpsRemoteIfNeeded(
+            activeRepo.path,
+            remRes.message || "Delete remote tag failed",
+            remoteName
+          ))
+        ) {
+          notify("info", `Deleted local tag ${tagName}`);
+        } else {
+          notify("error", `Deleted local tag, but remote delete failed: ${remRes.message}`);
+        }
+      } else {
+        setDeleteTagTarget(null);
+        notify("success", res.message);
+      }
+      if (historyBranch === tagName) {
+        setHistoryBranch("__ALL__");
+      }
+      await refreshRepo(activeRepo.path);
+    } catch (err) {
+      notify("error", String(err));
+    } finally {
+      setTagOpBusy(false);
+    }
+  };
+
+  const handleDeleteRemoteTagConfirm = async (tagName: string, remoteName: string) => {
+    if (!activeRepo) return;
+    setTagOpBusy(true);
+    try {
+      const res = await GitService.DeleteRemoteTag(
+        activeRepo.path,
+        remoteName,
+        tagName
+      );
+      setDeleteRemoteTagTarget(null);
+      if (res.success) {
+        notify("success", res.message);
+        await refreshRepo(activeRepo.path);
+      } else if (
+        res.errorCode === "HTTPS_REMOTE" &&
+        (await promptHttpsRemoteIfNeeded(
+          activeRepo.path,
+          res.message || "Delete remote tag failed",
+          remoteName
+        ))
+      ) {
+        // HTTPS prompt opened
+      } else {
+        notify("error", res.message || "Delete remote tag failed");
+      }
+    } catch (err) {
+      notify("error", String(err));
+    } finally {
+      setTagOpBusy(false);
+    }
+  };
+
   const handleRevertCommit = async (commit: CommitItem) => {
     if (!activeRepo) return;
     setRevertTarget(null);
@@ -564,77 +791,255 @@ export function App() {
   return (
     <div className="h-screen w-screen flex flex-col bg-[#f8fafc] text-[#0b1c30] overflow-hidden">
       {/* 1. TOP WINDOW TITLEBAR + REPO TABS */}
-      <header className="h-9 bg-[#e5eeff] border-b border-[#cbd5e1] flex items-center justify-between px-2 shrink-0 app-drag select-none">
-        <div className="flex items-center gap-1.5 min-w-0 app-no-drag">
-          <div className="w-5 h-5 rounded bg-[#0284c7] text-white flex items-center justify-center shrink-0">
-            <GitBranch className="w-3.5 h-3.5" />
+      <header className="h-10 bg-gradient-to-b from-[#e4eeff] to-[#dae7fd] flex items-end justify-between pl-2.5 pr-0 shrink-0 app-drag select-none relative z-30">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-[#cbd5e1] z-0" />
+        <div className="relative z-10 flex items-end gap-1.5 min-w-0 flex-1 h-full">
+          {/* App Brand Mark */}
+          <div className="h-full flex items-center gap-1.5 pr-1 shrink-0 app-no-drag">
+            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-[#0284c7] to-[#0369a1] text-white flex items-center justify-center shadow-xs">
+              <GitBranch className="w-3.5 h-3.5" />
+            </div>
+            {tabs.length === 0 && (
+              <span className="text-[11px] font-semibold tracking-tight text-[#0b1c30]">
+                GitPulse
+              </span>
+            )}
           </div>
 
-          {/* Repo Tabs */}
-          <div className="flex items-center gap-1 ml-1 overflow-x-auto max-w-[60vw]">
-            {tabs.map((tab) => {
+          {/* Scrollable Repo Tabs */}
+          <div
+            onWheel={(e) => {
+              if (e.deltaY !== 0) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+            className="flex items-end gap-0.5 min-w-0 overflow-x-auto no-scrollbar pt-1.5 app-no-drag"
+          >
+            {tabs.map((tab, idx) => {
               const active = tab.path === activePath;
+              const nextActive = tabs[idx + 1]?.path === activePath;
+              const showDivider = !active && !nextActive && idx < tabs.length - 1;
+              const tabTitle = tab.isWsl
+                ? `WSL2 (${tab.distro}): ${tab.linuxPath}`
+                : tab.path;
               return (
-                <div
-                  key={tab.path}
-                  onClick={() => setActivePath(tab.path)}
-                  title={tab.isWsl ? `WSL2 (${tab.distro}): ${tab.linuxPath}` : tab.path}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-t text-[11px] font-medium cursor-pointer transition-colors shrink-0 ${
-                    active
-                      ? "bg-white text-[#0b1c30] shadow-sm border-t border-x border-[#cbd5e1]"
-                      : "text-[#475569] hover:bg-[#dce9ff] hover:text-[#0b1c30]"
-                  }`}
-                >
-                  <FolderGit2 className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
-                  <span className="max-w-[140px] truncate">{tab.name}</span>
-                  {tab.isWsl && (
-                    <span className="px-1 rounded bg-[#ede9fe] text-[#6d28d9] text-[9px] font-mono font-semibold">
-                      WSL2
-                    </span>
-                  )}
-                  <button
-                    onClick={(e) => handleCloseTab(e, tab.path)}
-                    className="p-0.5 rounded hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0b1c30] cursor-pointer"
+                <React.Fragment key={tab.path}>
+                  <div
+                    onClick={() => setActivePath(tab.path)}
+                    onAuxClick={(e) => {
+                      if (e.button === 1) {
+                        e.preventDefault();
+                        closeTabByPath(tab.path);
+                      }
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setRepoSwitcherOpen(false);
+                      setTabCtxMenu({
+                        x: Math.min(e.clientX, window.innerWidth - 210),
+                        y: Math.min(e.clientY, window.innerHeight - 210),
+                        repo: tab,
+                      });
+                    }}
+                    title={tabTitle}
+                    className={`group relative flex items-center gap-1.5 pl-2.5 pr-1.5 h-[34px] rounded-t-lg border-t border-x text-[11px] cursor-pointer transition-colors shrink-0 max-w-[210px] ${
+                      active
+                        ? "z-10 bg-white text-[#0b1c30] font-semibold border-[#cbd5e1] shadow-[0_-1px_3px_rgba(15,23,42,0.05)]"
+                        : "bg-transparent border-transparent text-[#475569] font-medium hover:bg-white/55 hover:text-[#0b1c30]"
+                    }`}
                   >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
+                    {active && (
+                      <span
+                        className={`absolute top-0 left-2 right-2 h-[2px] rounded-b-full ${
+                          tab.isWsl ? "bg-[#7c3aed]" : "bg-[#0284c7]"
+                        }`}
+                      />
+                    )}
+                    <FolderGit2
+                      className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                        tab.isWsl
+                          ? active
+                            ? "text-[#7c3aed]"
+                            : "text-[#7c3aed]/75 group-hover:text-[#7c3aed]"
+                          : active
+                          ? "text-[#0284c7]"
+                          : "text-[#0284c7]/75 group-hover:text-[#0284c7]"
+                      }`}
+                    />
+                    <span className="truncate max-w-[120px]">{tab.name}</span>
+                    {tab.isWsl && (
+                      <span
+                        className={`px-1.5 py-[1px] rounded-full text-[9px] font-mono font-semibold leading-none shrink-0 border ${
+                          active
+                            ? "bg-[#ede9fe] text-[#6d28d9] border-[#ddd6fe]"
+                            : "bg-[#ede9fe]/75 text-[#6d28d9]/90 border-[#ddd6fe]/70"
+                        }`}
+                      >
+                        WSL2
+                      </span>
+                    )}
+                    <button
+                      aria-label={`Close ${tab.name}`}
+                      onClick={(e) => handleCloseTab(e, tab.path)}
+                      className={`p-0.5 rounded-sm transition-opacity cursor-pointer shrink-0 ${
+                        active
+                          ? "opacity-70 hover:opacity-100 hover:bg-[#f1f5f9] text-[#64748b] hover:text-[#0b1c30]"
+                          : "opacity-0 group-hover:opacity-75 hover:!opacity-100 hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0b1c30]"
+                      }`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {showDivider && (
+                    <div className="w-px h-3.5 bg-[#bfcee4] self-center shrink-0 mx-0.5" />
+                  )}
+                </React.Fragment>
               );
             })}
+          </div>
+
+          {/* Add Repo + Quick Project Switcher */}
+          <div className="flex items-center gap-1 pb-1.5 pl-0.5 shrink-0 app-no-drag relative">
             <button
               title="Open / Clone / Init Repository"
               onClick={() => setRepoModalOpen(true)}
-              className="p-1 rounded hover:bg-[#dce9ff] text-[#475569] hover:text-[#0b1c30] cursor-pointer"
+              className="h-7 px-2 rounded-md bg-white/75 hover:bg-white border border-[#cbd5e1]/90 text-[#334155] hover:text-[#0284c7] flex items-center gap-1 text-[11px] font-medium shadow-2xs transition-colors cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-3.5 h-3.5" />
+              {tabs.length <= 1 && <span>Open</span>}
             </button>
-          </div>
-        </div>
 
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-[#475569] pointer-events-none hidden md:block">
-          GitPulse • Windows & WSL2 Client
+            {tabs.length > 1 && (
+              <div className="relative">
+                <button
+                  title={`Switch open repository (${tabs.length})`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTabCtxMenu(null);
+                    setRepoSwitcherOpen((v) => !v);
+                  }}
+                  className={`h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                    repoSwitcherOpen
+                      ? "bg-white border-[#0284c7] text-[#0284c7] shadow-xs"
+                      : "bg-white/75 hover:bg-white border-[#cbd5e1]/90 text-[#475569] hover:text-[#0b1c30]"
+                  }`}
+                >
+                  <Layers className="w-3 h-3" />
+                  <span className="font-mono text-[10px] font-semibold">
+                    {tabs.length}
+                  </span>
+                  <ChevronDown className="w-3 h-3 opacity-75" />
+                </button>
+
+                {repoSwitcherOpen && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute left-0 top-8 z-50 w-72 bg-white border border-[#cbd5e1] rounded-xl shadow-xl py-1.5 text-[12px] text-[#0b1c30]"
+                  >
+                    <div className="px-3 py-1 border-b border-[#f1f5f9] flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#64748b]">
+                      <span>Open Repositories ({tabs.length})</span>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto py-1">
+                      {tabs.map((t) => {
+                        const isCur = t.path === activePath;
+                        return (
+                          <div
+                            key={t.path}
+                            onClick={() => {
+                              setActivePath(t.path);
+                              setRepoSwitcherOpen(false);
+                            }}
+                            className={`group flex items-center justify-between gap-2 px-3 py-1.5 cursor-pointer transition-colors ${
+                              isCur
+                                ? "bg-[#f0f9ff] text-[#0369a1]"
+                                : "hover:bg-[#f8fafc] text-[#0b1c30]"
+                            }`}
+                          >
+                            <div className="flex items-start gap-2 min-w-0 flex-1">
+                              <FolderGit2
+                                className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${
+                                  t.isWsl ? "text-[#7c3aed]" : "text-[#0284c7]"
+                                }`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`truncate text-[12px] ${
+                                      isCur ? "font-semibold" : "font-medium"
+                                    }`}
+                                  >
+                                    {t.name}
+                                  </span>
+                                  {t.isWsl && (
+                                    <span className="px-1.5 py-[1px] rounded-full bg-[#ede9fe] text-[#6d28d9] text-[9px] font-mono font-semibold shrink-0">
+                                      WSL2
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] font-mono text-[#64748b] truncate">
+                                  {t.isWsl ? t.linuxPath : t.path}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {isCur && (
+                                <Check className="w-3.5 h-3.5 text-[#0284c7]" />
+                              )}
+                              <button
+                                title={`Close ${t.name}`}
+                                onClick={(e) => handleCloseTab(e, t.path)}
+                                className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[#fee2e2] text-[#64748b] hover:text-[#dc2626] cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="pt-1 mt-1 border-t border-[#f1f5f9] px-1.5">
+                      <button
+                        onClick={() => {
+                          setRepoSwitcherOpen(false);
+                          setRepoModalOpen(true);
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg text-left flex items-center gap-2 text-[11px] font-medium text-[#0284c7] hover:bg-[#f0f9ff] cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Open or Clone Another Repository...</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Flexible Drag Handle Space */}
+          <div className="flex-1 min-w-[32px] h-full app-drag" />
         </div>
 
         {/* Window Controls */}
-        <div className="flex items-center app-no-drag -mr-2">
+        <div className="flex items-center app-no-drag shrink-0 h-full">
           <button
             aria-label="Minimize"
             onClick={() => GitService.MinimizeWindow()}
-            className="h-9 w-11 flex items-center justify-center text-[#475569] hover:bg-[#dce9ff] cursor-pointer"
+            className="h-10 w-11 flex items-center justify-center text-[#475569] hover:bg-[#cdddf9] transition-colors cursor-pointer"
           >
             <Minus className="w-3.5 h-3.5" />
           </button>
           <button
             aria-label="Maximize"
             onClick={() => GitService.ToggleMaximizeWindow()}
-            className="h-9 w-11 flex items-center justify-center text-[#475569] hover:bg-[#dce9ff] cursor-pointer"
+            className="h-10 w-11 flex items-center justify-center text-[#475569] hover:bg-[#cdddf9] transition-colors cursor-pointer"
           >
             <Square className="w-3 h-3" />
           </button>
           <button
             aria-label="Close"
             onClick={() => GitService.CloseWindow()}
-            className="h-9 w-11 flex items-center justify-center text-[#475569] hover:bg-[#dc2626] hover:text-white cursor-pointer"
+            className="h-10 w-11 flex items-center justify-center text-[#475569] hover:bg-[#dc2626] hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -888,9 +1293,11 @@ export function App() {
         {activeRepo ? (
           <>
             <Sidebar
+              key={`sidebar:${activeRepo.path}`}
               branches={branches}
               tags={tags}
               stashes={stashes}
+              remotes={remotes}
               currentBranch={status?.branch || ""}
               activeHistoryBranch={view === "history" ? historyBranch : ""}
               onInspectBranch={(branchName) => {
@@ -914,15 +1321,21 @@ export function App() {
               onRequestCreateTag={(target = "") =>
                 setTagModal({ open: true, target })
               }
+              onCheckoutTag={handleCheckoutTag}
+              onPushTag={handleRequestPushTag}
+              onRequestDeleteTag={(t) => setDeleteTagTarget(t)}
+              onRequestDeleteRemoteTag={(t) => setDeleteRemoteTagTarget(t)}
               onRequestStashPush={() => setStashModalOpen(true)}
               onStashApply={(ref) => handleStashOp("apply", ref)}
               onStashPop={(ref) => handleStashOp("pop", ref)}
               onStashDrop={(ref) => handleStashOp("drop", ref)}
+              onNotify={notify}
             />
 
             <main className="flex-1 flex min-w-0 min-h-0">
               {view === "changes" && (
                 <ChangesView
+                  key={`changes:${activeRepo.path}`}
                   repo={activeRepo}
                   status={status}
                   onRefresh={() => refreshRepo(activeRepo.path)}
@@ -936,8 +1349,10 @@ export function App() {
               )}
               {view === "history" && (
                 <HistoryView
+                  key={`history:${activeRepo.path}`}
                   repo={activeRepo}
                   branches={branches}
+                  tags={tags}
                   selectedBranch={historyBranch}
                   onSelectBranch={setHistoryBranch}
                   refreshKey={historyRefreshKey}
@@ -959,6 +1374,7 @@ export function App() {
               )}
               {view === "conflicts" && (
                 <ConflictView
+                  key={`conflicts:${activeRepo.path}`}
                   repo={activeRepo}
                   status={status}
                   onRefresh={() => refreshRepo(activeRepo.path)}
@@ -1099,6 +1515,116 @@ export function App() {
         onCancel={() => setTagModal({ open: false, target: "" })}
         onConfirm={handleCreateTag}
       />
+
+      <DeleteTagModal
+        tag={deleteTagTarget}
+        remotes={remotes}
+        busy={tagOpBusy}
+        onCancel={() => setDeleteTagTarget(null)}
+        onConfirm={handleDeleteTagConfirm}
+      />
+
+      <DeleteRemoteTagModal
+        tag={deleteRemoteTagTarget}
+        remotes={remotes}
+        busy={tagOpBusy}
+        onCancel={() => setDeleteRemoteTagTarget(null)}
+        onConfirm={handleDeleteRemoteTagConfirm}
+      />
+
+      <PushTagModal
+        tag={pushTagTarget}
+        remotes={remotes}
+        busy={tagOpBusy}
+        onCancel={() => setPushTagTarget(null)}
+        onConfirm={executePushTag}
+      />
+
+      {/* REPO TAB CONTEXT MENU */}
+      {tabCtxMenu && (
+        <div
+          style={{ left: tabCtxMenu.x, top: tabCtxMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-50 w-52 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[12px] text-[#0b1c30] select-none"
+        >
+          <div className="px-3 py-1 border-b border-[#f1f5f9] text-[10px] font-mono text-[#64748b] truncate">
+            {tabCtxMenu.repo.name}
+          </div>
+          {tabCtxMenu.repo.path !== activePath && (
+            <button
+              onClick={() => {
+                const p = tabCtxMenu.repo.path;
+                setTabCtxMenu(null);
+                setActivePath(p);
+              }}
+              className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5 text-[#0284c7]" />
+              <span>Switch to Repository</span>
+            </button>
+          )}
+          <button
+            onClick={() => {
+              const r = tabCtxMenu.repo;
+              setTabCtxMenu(null);
+              GitService.OpenInTerminal(r.path);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <Terminal className="w-3.5 h-3.5 text-[#475569]" />
+            <span>Open in Terminal</span>
+          </button>
+          <button
+            onClick={() => {
+              const r = tabCtxMenu.repo;
+              setTabCtxMenu(null);
+              GitService.OpenInExplorer(r.path, "");
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-[#475569]" />
+            <span>Open in Explorer</span>
+          </button>
+          <button
+            onClick={() => {
+              const r = tabCtxMenu.repo;
+              setTabCtxMenu(null);
+              const text = r.isWsl ? r.linuxPath : r.path;
+              navigator.clipboard.writeText(text);
+              notify("info", `Copied ${text}`);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f8fafc] text-[#475569] cursor-pointer"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Copy Path</span>
+          </button>
+          <div className="my-1 border-t border-[#f1f5f9]" />
+          {tabs.length > 1 && (
+            <button
+              onClick={() => {
+                const p = tabCtxMenu.repo.path;
+                setTabCtxMenu(null);
+                closeOtherTabs(p);
+              }}
+              className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f8fafc] text-[#475569] cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Close Other Tabs</span>
+            </button>
+          )}
+          <button
+            onClick={() => {
+              const p = tabCtxMenu.repo.path;
+              setTabCtxMenu(null);
+              closeTabByPath(p);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-[#dc2626] hover:bg-[#fef2f2] cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>Close Tab</span>
+          </button>
+        </div>
+      )}
 
       <RevertCommitModal
         commit={revertTarget}

@@ -317,6 +317,30 @@ func (s *GitService) CreateTag(repoPath, name, target, message string) (git.OpRe
 	return git.CreateTag(ctx, git.ParseRepoLocation(repoPath), name, target, message)
 }
 
+func (s *GitService) CheckoutTag(repoPath, tagName string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.CheckoutTag(ctx, git.ParseRepoLocation(repoPath), tagName)
+}
+
+func (s *GitService) DeleteTag(repoPath, name string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.DeleteTag(ctx, git.ParseRepoLocation(repoPath), name)
+}
+
+func (s *GitService) PushTag(repoPath, remoteName, tagName string) (git.OpResult, error) {
+	ctx, cancel := s.longCtx()
+	defer cancel()
+	return git.PushTag(ctx, git.ParseRepoLocation(repoPath), remoteName, tagName)
+}
+
+func (s *GitService) DeleteRemoteTag(repoPath, remoteName, tagName string) (git.OpResult, error) {
+	ctx, cancel := s.longCtx()
+	defer cancel()
+	return git.DeleteRemoteTag(ctx, git.ParseRepoLocation(repoPath), remoteName, tagName)
+}
+
 func (s *GitService) ListStashes(repoPath string) ([]git.StashItem, error) {
 	ctx, cancel := s.ctx()
 	defer cancel()

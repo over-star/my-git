@@ -25,6 +25,7 @@ import type {
   CommitTreeEntry,
   FileDiff,
   RepoLocation,
+  TagInfo,
 } from "../../bindings/gitpulse/internal/git/models";
 import { GitService } from "../../bindings/gitpulse";
 import { computeCommitGraph } from "../utils/dag";
@@ -34,6 +35,7 @@ import { StatusBadge, formatBytes } from "./StatusBadge";
 interface HistoryViewProps {
   repo: RepoLocation;
   branches: BranchInfo[];
+  tags?: TagInfo[];
   selectedBranch: string;
   onSelectBranch: (branch: string) => void;
   refreshKey: number;
@@ -105,6 +107,7 @@ const LANE_SPACING = 14;
 export const HistoryView: React.FC<HistoryViewProps> = ({
   repo,
   branches,
+  tags = [],
   selectedBranch,
   onSelectBranch,
   refreshKey,
@@ -236,7 +239,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
   // Load commit detail + full file tree when selectedHash changes
   useEffect(() => {
-    if (!selectedHash) {
+    if (!selectedHash || !commits.some((c) => c.hash === selectedHash)) {
       setDetail(null);
       setTreeEntries([]);
       setSelectedFile(null);
@@ -279,7 +282,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [repo.path, selectedHash]);
+  }, [repo.path, selectedHash, commits]);
 
   // Load commit file diff OR snapshot content
   useEffect(() => {
@@ -481,7 +484,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               <select
                 value={selectedBranch}
                 onChange={(e) => onSelectBranch(e.target.value)}
-                className="h-6 pl-7 pr-6 rounded bg-white border border-[#e2e8f0] text-[11px] font-medium text-[#0b1c30] outline-none focus:border-[#0284c7] appearance-none cursor-pointer"
+                className="h-6 pl-7 pr-6 rounded bg-white border border-[#e2e8f0] text-[11px] font-medium text-[#0b1c30] outline-none focus:border-[#0284c7] appearance-none cursor-pointer max-w-[220px]"
               >
                 <option value="__ALL__">All Branches ({branches.length})</option>
                 {branches.map((b) => (
@@ -489,6 +492,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     {b.isCurrent ? `● ${b.name}` : b.name}
                   </option>
                 ))}
+                {tags.length > 0 && (
+                  <optgroup label={`Tags (${tags.length})`}>
+                    {tags.map((t) => (
+                      <option key={`tag:${t.name}`} value={t.name}>
+                        Tag: {t.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {selectedBranch !== "__ALL__" &&
+                  !branches.some((b) => b.name === selectedBranch) &&
+                  !tags.some((t) => t.name === selectedBranch) && (
+                    <option value={selectedBranch}>{selectedBranch}</option>
+                  )}
               </select>
               <ChevronDown className="w-3 h-3 text-[#64748b] absolute right-1.5 pointer-events-none" />
             </div>

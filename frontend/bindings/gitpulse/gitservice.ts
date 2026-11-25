@@ -28,6 +28,10 @@ export function CheckoutBranch(repoPath: string, branchName: string, isRemote: b
     return $Call.ByID(3127373489, repoPath, branchName, isRemote);
 }
 
+export function CheckoutTag(repoPath: string, tagName: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(3602630223, repoPath, tagName);
+}
+
 export function CloneRepo(cloneID: string, repoURL: string, targetParent: string, folderName: string): $CancellablePromise<git$0.RepoLocation> {
     return $Call.ByID(2661498454, cloneID, repoURL, targetParent, folderName);
 }
@@ -54,6 +58,14 @@ export function DeleteBranch(repoPath: string, name: string, force: boolean): $C
 
 export function DeleteRemoteBranch(repoPath: string, remoteBranch: string): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(3868595712, repoPath, remoteBranch);
+}
+
+export function DeleteRemoteTag(repoPath: string, remoteName: string, tagName: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(75779088, repoPath, remoteName, tagName);
+}
+
+export function DeleteTag(repoPath: string, name: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(436388354, repoPath, name);
 }
 
 export function DiscardFile(repoPath: string, relPath: string, isUntracked: boolean): $CancellablePromise<void> {
@@ -182,6 +194,10 @@ export function Pull(repoPath: string): $CancellablePromise<git$0.OpResult> {
 
 export function Push(repoPath: string): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(4024544461, repoPath);
+}
+
+export function PushTag(repoPath: string, remoteName: string, tagName: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(653298187, repoPath, remoteName, tagName);
 }
 
 export function RemoveRecentRepo(repoPath: string): $CancellablePromise<git$0.RecentRepo[] | null> {

@@ -82,6 +82,26 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 	return branches, nil
 }
 
+func classifyCheckoutResult(targetLabel, stdout, stderr string, err error) OpResult {
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		low := strings.ToLower(combined)
+		code := ""
+		if strings.Contains(low, "would be overwritten") ||
+			strings.Contains(low, "commit your changes or stash them") ||
+			strings.Contains(low, "uncommitted changes") {
+			code = "DIRTY_WORKTREE"
+		}
+		return OpResult{
+			Success:   false,
+			Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			ErrorCode: code,
+			Output:    combined,
+		}
+	}
+	return OpResult{Success: true, Message: "Switched to " + targetLabel, Output: combined}
+}
+
 // CheckoutBranch switches to an existing branch (local or creates tracking branch for remote).
 func CheckoutBranch(ctx context.Context, loc RepoLocation, branchName string, isRemote bool) (OpResult, error) {
 	var args []string
@@ -103,23 +123,7 @@ func CheckoutBranch(ctx context.Context, loc RepoLocation, branchName string, is
 	}
 
 	stdout, stderr, err := RunGit(ctx, loc, args...)
-	combined := strings.TrimSpace(stdout + "\n" + stderr)
-	if err != nil {
-		low := strings.ToLower(combined)
-		code := ""
-		if strings.Contains(low, "would be overwritten") ||
-			strings.Contains(low, "commit your changes or stash them") ||
-			strings.Contains(low, "uncommitted changes") {
-			code = "DIRTY_WORKTREE"
-		}
-		return OpResult{
-			Success:   false,
-			Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
-			ErrorCode: code,
-			Output:    combined,
-		}, nil
-	}
-	return OpResult{Success: true, Message: "Switched to " + branchName, Output: combined}, nil
+	return classifyCheckoutResult(branchName, stdout, stderr, err), nil
 }
 
 // CreateBranch creates a new branch from startPoint (defaults to HEAD) and optionally checks it out.
@@ -273,6 +277,72 @@ func CreateTag(ctx context.Context, loc RepoLocation, name, target, message stri
 		return OpResult{Success: false, Message: firstNonEmpty(strings.TrimSpace(stderr), err.Error()), Output: combined}, nil
 	}
 	return OpResult{Success: true, Message: "Created tag " + name, Output: combined}, nil
+}
+
+// CheckoutTag checks out a tag in detached HEAD state.
+func CheckoutTag(ctx context.Context, loc RepoLocation, tagName string) (OpResult, error) {
+	tagName = strings.TrimSpace(tagName)
+	if tagName == "" {
+		return OpResult{Success: false, Message: "Tag name is required"}, nil
+	}
+	stdout, stderr, err := RunGit(ctx, loc, "checkout", "refs/tags/"+tagName)
+	return classifyCheckoutResult("tag "+tagName+" (detached HEAD)", stdout, stderr, err), nil
+}
+
+// DeleteTag deletes a local Git tag.
+func DeleteTag(ctx context.Context, loc RepoLocation, name string) (OpResult, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return OpResult{Success: false, Message: "Tag name is required"}, nil
+	}
+	stdout, stderr, err := RunGit(ctx, loc, "tag", "-d", name)
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		return OpResult{
+			Success: false,
+			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			Output:  combined,
+		}, nil
+	}
+	return OpResult{Success: true, Message: "Deleted tag " + name, Output: combined}, nil
+}
+
+// PushTag pushes a local tag to the specified remote (defaults to origin or first remote).
+func PushTag(ctx context.Context, loc RepoLocation, remoteName, tagName string) (OpResult, error) {
+	tagName = strings.TrimSpace(tagName)
+	if tagName == "" {
+		return OpResult{Success: false, Message: "Tag name is required"}, nil
+	}
+	remote := resolveDefaultRemote(ctx, loc, remoteName)
+	stdout, stderr, err := RunGit(ctx, loc, "push", remote, "refs/tags/"+tagName)
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		return classifyPushError(ctx, loc, remote, stdout, stderr, err), nil
+	}
+	return OpResult{
+		Success: true,
+		Message: fmt.Sprintf("Pushed tag %s to %s", tagName, remote),
+		Output:  combined,
+	}, nil
+}
+
+// DeleteRemoteTag deletes a tag on the specified remote via git push <remote> --delete refs/tags/<tag>.
+func DeleteRemoteTag(ctx context.Context, loc RepoLocation, remoteName, tagName string) (OpResult, error) {
+	tagName = strings.TrimSpace(tagName)
+	if tagName == "" {
+		return OpResult{Success: false, Message: "Tag name is required"}, nil
+	}
+	remote := resolveDefaultRemote(ctx, loc, remoteName)
+	stdout, stderr, err := RunGit(ctx, loc, "push", remote, "--delete", "refs/tags/"+tagName)
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		return classifyPushError(ctx, loc, remote, stdout, stderr, err), nil
+	}
+	return OpResult{
+		Success: true,
+		Message: fmt.Sprintf("Deleted tag %s on %s", tagName, remote),
+		Output:  combined,
+	}, nil
 }
 
 // ListStashes returns all saved stashes.

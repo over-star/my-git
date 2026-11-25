@@ -310,3 +310,68 @@ func TestGitMergeConflictAndAbort(t *testing.T) {
 	}
 }
 
+func TestTagLifecycleAndRemotePushDelete(t *testing.T) {
+	ctx := context.Background()
+	bareDir := t.TempDir()
+	workDir := t.TempDir()
+
+	// Initialize bare remote
+	bareLoc := ParseRepoLocation(bareDir)
+	if _, stderr, err := RunGit(ctx, bareLoc, "init", "--bare"); err != nil {
+		t.Fatalf("bare init failed: %s (%v)", stderr, err)
+	}
+
+	loc, err := InitRepo(ctx, workDir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+	if res, err := SetRemoteURL(ctx, loc, "origin", bareDir); err != nil || !res.Success {
+		t.Fatalf("SetRemoteURL failed: %+v %v", res, err)
+	}
+
+	_ = os.WriteFile(filepath.Join(workDir, "main.txt"), []byte("v1\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	if res, err := Commit(ctx, loc, "release 1", "", false); err != nil || !res.Success {
+		t.Fatalf("Commit 1 failed: %+v %v", res, err)
+	}
+
+	if res, err := CreateTag(ctx, loc, "v1.0.0", "", "First release"); err != nil || !res.Success {
+		t.Fatalf("CreateTag failed: %+v %v", res, err)
+	}
+	tags, err := ListTags(ctx, loc)
+	if err != nil || len(tags) != 1 || tags[0].Name != "v1.0.0" {
+		t.Fatalf("ListTags unexpected: %+v err=%v", tags, err)
+	}
+
+	if res, err := PushTag(ctx, loc, "", "v1.0.0"); err != nil || !res.Success {
+		t.Fatalf("PushTag failed: %+v %v", res, err)
+	}
+	// Verify tag exists on bare remote
+	if out, stderr, err := RunGit(ctx, bareLoc, "tag", "-l"); err != nil || out == "" {
+		t.Fatalf("expected tag on remote, got %q stderr=%s err=%v", out, stderr, err)
+	}
+
+	// Second commit, then checkout tag (detached HEAD)
+	_ = os.WriteFile(filepath.Join(workDir, "main.txt"), []byte("v2\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "commit 2", "", false)
+
+	if res, err := CheckoutTag(ctx, loc, "v1.0.0"); err != nil || !res.Success {
+		t.Fatalf("CheckoutTag failed: %+v %v", res, err)
+	}
+
+	// Delete remote tag, then delete local tag
+	if res, err := DeleteRemoteTag(ctx, loc, "origin", "v1.0.0"); err != nil || !res.Success {
+		t.Fatalf("DeleteRemoteTag failed: %+v %v", res, err)
+	}
+	if res, err := DeleteTag(ctx, loc, "v1.0.0"); err != nil || !res.Success {
+		t.Fatalf("DeleteTag failed: %+v %v", res, err)
+	}
+	tagsAfter, err := ListTags(ctx, loc)
+	if err != nil || len(tagsAfter) != 0 {
+		t.Fatalf("expected 0 tags after delete, got: %+v err=%v", tagsAfter, err)
+	}
+}
+

@@ -52,6 +52,47 @@ func Pull(ctx context.Context, loc RepoLocation) (OpResult, error) {
 	return OpResult{Success: true, Message: "Pull completed", Output: combined}, nil
 }
 
+// resolveDefaultRemote picks preferred if non-empty, otherwise "origin" when present or the first configured remote.
+func resolveDefaultRemote(ctx context.Context, loc RepoLocation, preferred string) string {
+	if p := strings.TrimSpace(preferred); p != "" {
+		return p
+	}
+	if rOut, _, rerr := RunGit(ctx, loc, "remote"); rerr == nil {
+		remotes := strings.Fields(rOut)
+		if len(remotes) > 0 {
+			for _, r := range remotes {
+				if r == "origin" {
+					return "origin"
+				}
+			}
+			return remotes[0]
+		}
+	}
+	return "origin"
+}
+
+func classifyPushError(ctx context.Context, loc RepoLocation, remoteName, stdout, stderr string, err error) OpResult {
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	code := ""
+	remotes, _ := ListRemotes(ctx, loc)
+	for _, r := range remotes {
+		if remoteName != "" && r.Name != remoteName {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(r.PushURL), "http://") ||
+			strings.HasPrefix(strings.ToLower(r.PushURL), "https://") {
+			code = "HTTPS_REMOTE"
+			break
+		}
+	}
+	return OpResult{
+		Success:   false,
+		Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+		ErrorCode: code,
+		Output:    combined,
+	}
+}
+
 // Push runs git push, automatically adding --set-upstream origin <branch> when no upstream is set.
 func Push(ctx context.Context, loc RepoLocation) (OpResult, error) {
 	branchOut, _, berr := RunGit(ctx, loc, "rev-parse", "--abbrev-ref", "HEAD")
@@ -63,24 +104,9 @@ func Push(ctx context.Context, loc RepoLocation) (OpResult, error) {
 	// Check if upstream exists
 	_, _, uerr := RunGit(ctx, loc, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	var args []string
+	remoteName := ""
 	if uerr != nil {
-		// Determine remote name (default origin)
-		remoteName := "origin"
-		if rOut, _, rerr := RunGit(ctx, loc, "remote"); rerr == nil {
-			remotes := strings.Fields(rOut)
-			if len(remotes) > 0 {
-				hasOrigin := false
-				for _, r := range remotes {
-					if r == "origin" {
-						hasOrigin = true
-						break
-					}
-				}
-				if !hasOrigin {
-					remoteName = remotes[0]
-				}
-			}
-		}
+		remoteName = resolveDefaultRemote(ctx, loc, "")
 		args = []string{"push", "--set-upstream", remoteName, currentBranch}
 	} else {
 		args = []string{"push"}
@@ -89,21 +115,7 @@ func Push(ctx context.Context, loc RepoLocation) (OpResult, error) {
 	stdout, stderr, err := RunGit(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
-		code := ""
-		remotes, _ := ListRemotes(ctx, loc)
-		for _, r := range remotes {
-			if strings.HasPrefix(strings.ToLower(r.PushURL), "http://") ||
-				strings.HasPrefix(strings.ToLower(r.PushURL), "https://") {
-				code = "HTTPS_REMOTE"
-				break
-			}
-		}
-		return OpResult{
-			Success:   false,
-			Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
-			ErrorCode: code,
-			Output:    combined,
-		}, nil
+		return classifyPushError(ctx, loc, remoteName, stdout, stderr, err), nil
 	}
 	msg := "Push completed"
 	if uerr != nil {

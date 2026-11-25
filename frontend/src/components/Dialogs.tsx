@@ -11,7 +11,12 @@ import {
   History,
   X,
 } from "lucide-react";
-import type { CommitItem, FileStatus } from "../../bindings/gitpulse/internal/git/models";
+import type {
+  CommitItem,
+  FileStatus,
+  RemoteInfo,
+  TagInfo,
+} from "../../bindings/gitpulse/internal/git/models";
 
 export const DiscardConfirmModal: React.FC<{
   files: FileStatus[];
@@ -326,12 +331,22 @@ export const DeleteRemoteBranchModal: React.FC<{
 };
 
 export const CheckoutConflictModal: React.FC<{
-  target: { name: string; isRemote: boolean; errorMessage: string } | null;
+  target: {
+    name: string;
+    isRemote: boolean;
+    kind?: "branch" | "tag";
+    errorMessage: string;
+  } | null;
   onCancel: () => void;
-  onStashAndCheckout: (name: string, isRemote: boolean) => void;
+  onStashAndCheckout: (
+    name: string,
+    isRemote: boolean,
+    kind?: "branch" | "tag"
+  ) => void;
   onGoToChanges: () => void;
 }> = ({ target, onCancel, onStashAndCheckout, onGoToChanges }) => {
   if (!target) return null;
+  const isTag = target.kind === "tag";
   return (
     <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
       <div className="w-full max-w-lg bg-white border border-[#cbd5e1] rounded-xl shadow-xl p-4 flex flex-col gap-3">
@@ -341,7 +356,7 @@ export const CheckoutConflictModal: React.FC<{
           </div>
           <div>
             <h3 className="text-sm font-semibold text-[#0b1c30]">
-              Cannot Switch to "{target.name}"
+              Cannot Checkout {isTag ? "Tag " : ""}"{target.name}"
             </h3>
             <p className="text-xs text-[#64748b] mt-1">
               Your local uncommitted changes would be overwritten by checkout. Please Stash or Commit them first.
@@ -365,10 +380,10 @@ export const CheckoutConflictModal: React.FC<{
             Review Changes to Commit
           </button>
           <button
-            onClick={() => onStashAndCheckout(target.name, target.isRemote)}
+            onClick={() => onStashAndCheckout(target.name, target.isRemote, target.kind)}
             className="px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-medium cursor-pointer"
           >
-            Stash & Switch Branch
+            {isTag ? "Stash & Checkout Tag" : "Stash & Switch Branch"}
           </button>
         </div>
       </div>
@@ -686,6 +701,248 @@ export const ResetCommitModal: React.FC<{
             }`}
           >
             Reset (--{mode})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+function pickDefaultRemote(remotes: RemoteInfo[]): string {
+  const origin = remotes.find((r) => r.name === "origin");
+  return origin ? origin.name : remotes[0]?.name || "origin";
+}
+
+export const DeleteTagModal: React.FC<{
+  tag: TagInfo | null;
+  remotes: RemoteInfo[];
+  busy?: boolean;
+  onCancel: () => void;
+  onConfirm: (tagName: string, alsoRemote: boolean, remoteName: string) => void;
+}> = ({ tag, remotes, busy, onCancel, onConfirm }) => {
+  const [alsoRemote, setAlsoRemote] = useState(false);
+  const [remoteName, setRemoteName] = useState("origin");
+
+  React.useEffect(() => {
+    setAlsoRemote(false);
+    setRemoteName(pickDefaultRemote(remotes));
+  }, [tag?.name, remotes]);
+
+  if (!tag) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white border border-[#cbd5e1] rounded-xl shadow-xl p-4 flex flex-col gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-[#fef2f2] text-[#dc2626] flex items-center justify-center shrink-0">
+            <Trash2 className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-[#0b1c30]">
+              Delete Local Tag
+            </h3>
+            <p className="text-xs text-[#64748b] mt-1">
+              Delete local tag{" "}
+              <code className="px-1 py-0.5 rounded bg-[#f1f5f9] font-mono text-[#0b1c30]">
+                {tag.name}
+              </code>{" "}
+              (<span className="font-mono">{tag.hash}</span>)?
+            </p>
+            {tag.message && (
+              <div className="mt-2 px-2 py-1 rounded bg-[#f8fafc] border border-[#e2e8f0] text-[11px] text-[#475569] truncate">
+                {tag.message}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {remotes.length > 0 && (
+          <div className="flex flex-col gap-2 pt-1 border-t border-[#f1f5f9]">
+            <label className="flex items-center gap-2 text-xs text-[#dc2626] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={alsoRemote}
+                onChange={(e) => setAlsoRemote(e.target.checked)}
+                className="accent-[#dc2626]"
+              />
+              Also delete tag from remote
+            </label>
+            {alsoRemote && (
+              <div className="flex items-center gap-2 pl-5">
+                <span className="text-[11px] text-[#64748b]">Remote:</span>
+                <select
+                  value={remoteName}
+                  onChange={(e) => setRemoteName(e.target.value)}
+                  className="px-2 py-1 rounded bg-white border border-[#cbd5e1] text-xs font-mono outline-none"
+                >
+                  {remotes.map((r) => (
+                    <option key={r.name} value={r.name}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-white border border-[#e2e8f0] text-xs font-medium cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(tag.name, alsoRemote, remoteName)}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-[#dc2626] hover:bg-[#b91c1c] text-white text-xs font-medium disabled:opacity-50 cursor-pointer"
+          >
+            {busy
+              ? "Deleting..."
+              : alsoRemote
+              ? `Delete Local & ${remoteName}`
+              : "Delete Tag"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const DeleteRemoteTagModal: React.FC<{
+  tag: TagInfo | null;
+  remotes: RemoteInfo[];
+  busy?: boolean;
+  onCancel: () => void;
+  onConfirm: (tagName: string, remoteName: string) => void;
+}> = ({ tag, remotes, busy, onCancel, onConfirm }) => {
+  const [remoteName, setRemoteName] = useState("origin");
+
+  React.useEffect(() => {
+    setRemoteName(pickDefaultRemote(remotes));
+  }, [tag?.name, remotes]);
+
+  if (!tag) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white border border-[#cbd5e1] rounded-xl shadow-xl p-4 flex flex-col gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-[#fef2f2] text-[#dc2626] flex items-center justify-center shrink-0">
+            <CloudOff className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-[#0b1c30]">
+              Delete Remote Tag?
+            </h3>
+            <p className="text-xs text-[#64748b] mt-1">
+              This removes the tag on the remote repository (
+              <code className="font-mono">git push --delete refs/tags/...</code>
+              ), keeping your local tag intact.
+            </p>
+            <div className="mt-2 px-2 py-1 rounded bg-[#fef2f2] border border-[#fecaca] font-mono text-[11px] text-[#991b1b] break-all">
+              {remoteName} / refs/tags/{tag.name}
+            </div>
+            {remotes.length > 1 && (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[11px] text-[#64748b]">Remote:</span>
+                <select
+                  value={remoteName}
+                  onChange={(e) => setRemoteName(e.target.value)}
+                  className="px-2 py-1 rounded bg-white border border-[#cbd5e1] text-xs font-mono outline-none"
+                >
+                  {remotes.map((r) => (
+                    <option key={r.name} value={r.name}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-white border border-[#e2e8f0] hover:bg-[#f8fafc] text-xs font-medium text-[#334155] cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(tag.name, remoteName)}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-[#dc2626] hover:bg-[#b91c1c] text-white text-xs font-medium disabled:opacity-50 cursor-pointer"
+          >
+            {busy ? "Deleting..." : "Confirm Delete Remote Tag"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const PushTagModal: React.FC<{
+  tag: TagInfo | null;
+  remotes: RemoteInfo[];
+  busy?: boolean;
+  onCancel: () => void;
+  onConfirm: (tagName: string, remoteName: string) => void;
+}> = ({ tag, remotes, busy, onCancel, onConfirm }) => {
+  const [remoteName, setRemoteName] = useState("origin");
+
+  React.useEffect(() => {
+    setRemoteName(pickDefaultRemote(remotes));
+  }, [tag?.name, remotes]);
+
+  if (!tag) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white border border-[#cbd5e1] rounded-xl shadow-xl p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#0b1c30]">
+            <TagIcon className="w-4 h-4 text-[#16a34a]" />
+            Push Tag to Remote
+          </div>
+          <button onClick={onCancel} className="text-[#64748b] cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="text-xs text-[#475569]">
+          Push tag{" "}
+          <code className="px-1 py-0.5 rounded bg-[#f0fdf4] border border-[#bbf7d0] font-mono text-[#15803d]">
+            {tag.name}
+          </code>{" "}
+          to remote:
+        </div>
+        <select
+          value={remoteName}
+          onChange={(e) => setRemoteName(e.target.value)}
+          className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs font-mono outline-none"
+        >
+          {remotes.map((r) => (
+            <option key={r.name} value={r.name}>
+              {r.name} ({r.pushUrl || r.fetchUrl})
+            </option>
+          ))}
+        </select>
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-white border border-[#e2e8f0] text-xs font-medium cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(tag.name, remoteName)}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-medium disabled:opacity-50 cursor-pointer"
+          >
+            {busy ? "Pushing..." : `Push to ${remoteName}`}
           </button>
         </div>
       </div>
