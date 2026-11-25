@@ -375,3 +375,57 @@ func TestTagLifecycleAndRemotePushDelete(t *testing.T) {
 	}
 }
 
+func TestAmbiguousLocalBranchNamedOrigin(t *testing.T) {
+	ctx := context.Background()
+	bareDir := t.TempDir()
+	workDir := t.TempDir()
+
+	bareLoc := ParseRepoLocation(bareDir)
+	if _, stderr, err := RunGit(ctx, bareLoc, "init", "--bare"); err != nil {
+		t.Fatalf("bare init failed: %s (%v)", stderr, err)
+	}
+
+	loc, err := InitRepo(ctx, workDir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+	_, _ = SetRemoteURL(ctx, loc, "origin", bareDir)
+
+	_ = os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("1\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "init", "", false)
+
+	// Push default branch and create refs/remotes/origin/HEAD so "origin" ref is ambiguous
+	_, _, _ = RunGit(ctx, loc, "push", "-u", "origin", "HEAD")
+	_, _, _ = RunGit(ctx, loc, "remote", "set-head", "origin", "-a")
+
+	// Create a local branch literally named "origin" (which git formats as heads/origin)
+	if res, err := CreateBranch(ctx, loc, "origin", "", false); err != nil || !res.Success {
+		t.Fatalf("CreateBranch(origin) failed: %+v err=%v", res, err)
+	}
+
+	branches, err := ListBranches(ctx, loc)
+	if err != nil {
+		t.Fatalf("ListBranches failed: %v", err)
+	}
+	var foundOriginLocal bool
+	for _, b := range branches {
+		if !b.IsRemote && b.FullName == "refs/heads/origin" {
+			foundOriginLocal = true
+			if b.Name != "origin" {
+				t.Fatalf("expected local branch Name=%q, got %q", "origin", b.Name)
+			}
+		}
+	}
+	if !foundOriginLocal {
+		t.Fatalf("expected refs/heads/origin in branches: %+v", branches)
+	}
+
+	// Ensure Deleting the branch using b.Name succeeds cleanly
+	if res, err := DeleteBranch(ctx, loc, "origin", true); err != nil || !res.Success {
+		t.Fatalf("DeleteBranch(origin) failed: %+v err=%v", res, err)
+	}
+}
+

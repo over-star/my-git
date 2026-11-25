@@ -227,7 +227,7 @@ func parseDecorateRefs(raw string) []RefBadge {
 		}
 		if strings.HasPrefix(p, "HEAD -> ") {
 			badges = append(badges, RefBadge{Name: "HEAD", Type: "head"})
-			branchName := strings.TrimPrefix(p, "HEAD -> ")
+			branchName := strings.TrimPrefix(strings.TrimPrefix(p, "HEAD -> "), "heads/")
 			badges = append(badges, RefBadge{Name: branchName, Type: "local"})
 			continue
 		}
@@ -237,6 +237,17 @@ func parseDecorateRefs(raw string) []RefBadge {
 		}
 		if strings.HasPrefix(p, "tag: ") {
 			badges = append(badges, RefBadge{Name: strings.TrimPrefix(p, "tag: "), Type: "tag"})
+			continue
+		}
+		if strings.HasPrefix(p, "heads/") {
+			badges = append(badges, RefBadge{Name: strings.TrimPrefix(p, "heads/"), Type: "local"})
+			continue
+		}
+		if strings.HasPrefix(p, "remotes/") {
+			rem := strings.TrimPrefix(p, "remotes/")
+			if !strings.HasSuffix(rem, "/HEAD") {
+				badges = append(badges, RefBadge{Name: rem, Type: "remote"})
+			}
 			continue
 		}
 		if strings.Contains(p, "/") {

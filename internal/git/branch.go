@@ -36,7 +36,6 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 			continue
 		}
 		fullName := f[0]
-		shortName := f[1]
 		isCurrent := f[2] == "*"
 		upstream := f[3]
 		track := f[4]
@@ -44,6 +43,12 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 		lastMsg := f[6]
 
 		isRemote := strings.HasPrefix(fullName, "refs/remotes/")
+		shortName := f[1]
+		if isRemote {
+			shortName = strings.TrimPrefix(fullName, "refs/remotes/")
+		} else if strings.HasPrefix(fullName, "refs/heads/") {
+			shortName = strings.TrimPrefix(fullName, "refs/heads/")
+		}
 		if isRemote && strings.HasSuffix(shortName, "/HEAD") {
 			continue
 		}
@@ -61,7 +66,7 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 			behind, _ = strconv.Atoi(m[1])
 		}
 		if !isRemote && upstream == "" && hasRemotes {
-			if cntOut, _, cerr := RunGit(ctx, loc, "rev-list", "--count", shortName, "--not", "--remotes"); cerr == nil {
+			if cntOut, _, cerr := RunGit(ctx, loc, "rev-list", "--count", fullName, "--not", "--remotes"); cerr == nil {
 				ahead, _ = strconv.Atoi(strings.TrimSpace(cntOut))
 			}
 		}

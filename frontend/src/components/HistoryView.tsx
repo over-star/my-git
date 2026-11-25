@@ -38,6 +38,7 @@ interface HistoryViewProps {
   tags?: TagInfo[];
   selectedBranch: string;
   onSelectBranch: (branch: string) => void;
+  focusCommitSignal?: { sha: string; nonce: number } | null;
   refreshKey: number;
   externalSearch?: string;
   onCreateBranchFromCommit: (sha: string) => void;
@@ -110,6 +111,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   tags = [],
   selectedBranch,
   onSelectBranch,
+  focusCommitSignal,
   refreshKey,
   externalSearch,
   onCreateBranchFromCommit,
@@ -198,8 +200,18 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         setCommits(list);
         setHasMore(page.hasMore);
         if (list.length > 0) {
+          const focusSha = focusCommitSignal?.sha;
+          const focusMatch = focusSha
+            ? list.find(
+                (c) => c.hash.startsWith(focusSha) || c.shortHash === focusSha
+              )
+            : undefined;
           setSelectedHash((prev) =>
-            prev && list.some((c) => c.hash === prev) ? prev : list[0].hash
+            focusMatch
+              ? focusMatch.hash
+              : prev && list.some((c) => c.hash === prev)
+              ? prev
+              : list[0].hash
           );
         } else {
           setSelectedHash(null);
@@ -216,6 +228,21 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       cancelled = true;
     };
   }, [repo.path, selectedBranch, debouncedSearch, refreshKey]);
+
+  // Focus and scroll to a specific commit when signaled (e.g. clicking a branch in All Commits mode)
+  useEffect(() => {
+    const focusSha = focusCommitSignal?.sha;
+    if (!focusSha || commits.length === 0) return;
+    const idx = commits.findIndex(
+      (c) => c.hash.startsWith(focusSha) || c.shortHash === focusSha
+    );
+    if (idx < 0) return;
+    setSelectedHash(commits[idx].hash);
+    if (listRef.current) {
+      const targetTop = Math.max(0, idx * ROW_HEIGHT - viewportHeight / 3);
+      listRef.current.scrollTo({ top: targetTop, behavior: "smooth" });
+    }
+  }, [focusCommitSignal, commits]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
@@ -488,22 +515,22 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               >
                 <option value="__ALL__">All Branches ({branches.length})</option>
                 {branches.map((b) => (
-                  <option key={b.fullName} value={b.name}>
+                  <option key={b.fullName} value={b.fullName}>
                     {b.isCurrent ? `● ${b.name}` : b.name}
                   </option>
                 ))}
                 {tags.length > 0 && (
                   <optgroup label={`Tags (${tags.length})`}>
                     {tags.map((t) => (
-                      <option key={`tag:${t.name}`} value={t.name}>
+                      <option key={`tag:${t.name}`} value={`refs/tags/${t.name}`}>
                         Tag: {t.name}
                       </option>
                     ))}
                   </optgroup>
                 )}
                 {selectedBranch !== "__ALL__" &&
-                  !branches.some((b) => b.name === selectedBranch) &&
-                  !tags.some((t) => t.name === selectedBranch) && (
+                  !branches.some((b) => b.fullName === selectedBranch) &&
+                  !tags.some((t) => `refs/tags/${t.name}` === selectedBranch) && (
                     <option value={selectedBranch}>{selectedBranch}</option>
                   )}
               </select>

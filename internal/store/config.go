@@ -12,9 +12,10 @@ import (
 )
 
 type AppState struct {
-	RecentRepos []git.RecentRepo `json:"recentRepos"`
-	OpenTabs    []string         `json:"openTabs"`
-	ActiveTab   string           `json:"activeTab"`
+	RecentRepos    []git.RecentRepo    `json:"recentRepos"`
+	OpenTabs       []string            `json:"openTabs"`
+	ActiveTab      string              `json:"activeTab"`
+	PinnedBranches map[string][]string `json:"pinnedBranches,omitempty"`
 }
 
 type Store struct {
@@ -35,8 +36,9 @@ func NewStore() (*Store, error) {
 	s := &Store{
 		filePath: filepath.Join(appDir, "state.json"),
 		state: AppState{
-			RecentRepos: []git.RecentRepo{},
-			OpenTabs:    []string{},
+			RecentRepos:    []git.RecentRepo{},
+			OpenTabs:       []string{},
+			PinnedBranches: map[string][]string{},
 		},
 	}
 	_ = s.load()
@@ -59,6 +61,9 @@ func (s *Store) load() error {
 	}
 	if loaded.OpenTabs == nil {
 		loaded.OpenTabs = []string{}
+	}
+	if loaded.PinnedBranches == nil {
+		loaded.PinnedBranches = map[string][]string{}
 	}
 	s.state = loaded
 	return nil
@@ -180,4 +185,86 @@ func (s *Store) getSortedLocked() []git.RecentRepo {
 		return out[i].LastOpened > out[j].LastOpened
 	})
 	return out
+}
+
+func (s *Store) GetPinnedBranches(repoPath string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list := s.state.PinnedBranches[repoPath]
+	out := make([]string, len(list))
+	copy(out, list)
+	return out
+}
+
+func (s *Store) TogglePinBranch(repoPath, fullName string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.PinnedBranches == nil {
+		s.state.PinnedBranches = map[string][]string{}
+	}
+	cur := s.state.PinnedBranches[repoPath]
+	next := make([]string, 0, len(cur)+1)
+	found := false
+	for _, b := range cur {
+		if b == fullName {
+			found = true
+			continue
+		}
+		next = append(next, b)
+	}
+	if !found && fullName != "" {
+		next = append(next, fullName)
+	}
+	if len(next) == 0 {
+		delete(s.state.PinnedBranches, repoPath)
+	} else {
+		s.state.PinnedBranches[repoPath] = next
+	}
+	_ = s.saveLocked()
+	out := make([]string, len(next))
+	copy(out, next)
+	return out
+}
+
+func (s *Store) RenamePinnedBranch(repoPath, oldFullName, newFullName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur := s.state.PinnedBranches[repoPath]
+	changed := false
+	for i, b := range cur {
+		if b == oldFullName {
+			cur[i] = newFullName
+			changed = true
+		}
+	}
+	if changed {
+		s.state.PinnedBranches[repoPath] = cur
+		_ = s.saveLocked()
+	}
+}
+
+func (s *Store) RemovePinnedBranch(repoPath, fullName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur := s.state.PinnedBranches[repoPath]
+	if len(cur) == 0 {
+		return
+	}
+	next := make([]string, 0, len(cur))
+	changed := false
+	for _, b := range cur {
+		if b == fullName {
+			changed = true
+			continue
+		}
+		next = append(next, b)
+	}
+	if changed {
+		if len(next) == 0 {
+			delete(s.state.PinnedBranches, repoPath)
+		} else {
+			s.state.PinnedBranches[repoPath] = next
+		}
+		_ = s.saveLocked()
+	}
 }

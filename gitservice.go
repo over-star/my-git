@@ -77,6 +77,14 @@ func (s *GitService) GetSavedTabs() SavedTabsState {
 	return SavedTabsState{Tabs: tabs, ActiveTab: active}
 }
 
+func (s *GitService) GetPinnedBranches(repoPath string) []string {
+	return s.store.GetPinnedBranches(repoPath)
+}
+
+func (s *GitService) TogglePinBranch(repoPath, fullName string) []string {
+	return s.store.TogglePinBranch(repoPath, fullName)
+}
+
 // --- WSL2 Discovery & Browsing ---
 
 func (s *GitService) ListWSLDistros() ([]git.WSLDistro, error) {
@@ -290,19 +298,35 @@ func (s *GitService) MergeBranch(repoPath, branchName string) (git.OpResult, err
 func (s *GitService) DeleteBranch(repoPath, name string, force bool) (git.OpResult, error) {
 	ctx, cancel := s.ctx()
 	defer cancel()
-	return git.DeleteBranch(ctx, git.ParseRepoLocation(repoPath), name, force)
+	res, err := git.DeleteBranch(ctx, git.ParseRepoLocation(repoPath), name, force)
+	if err == nil && res.Success {
+		s.store.RemovePinnedBranch(repoPath, "refs/heads/"+strings.TrimSpace(name))
+	}
+	return res, err
 }
 
 func (s *GitService) RenameBranch(repoPath, oldName, newName string) (git.OpResult, error) {
 	ctx, cancel := s.ctx()
 	defer cancel()
-	return git.RenameBranch(ctx, git.ParseRepoLocation(repoPath), oldName, newName)
+	res, err := git.RenameBranch(ctx, git.ParseRepoLocation(repoPath), oldName, newName)
+	if err == nil && res.Success {
+		s.store.RenamePinnedBranch(
+			repoPath,
+			"refs/heads/"+strings.TrimSpace(oldName),
+			"refs/heads/"+strings.TrimSpace(newName),
+		)
+	}
+	return res, err
 }
 
 func (s *GitService) DeleteRemoteBranch(repoPath, remoteBranch string) (git.OpResult, error) {
 	ctx, cancel := s.longCtx()
 	defer cancel()
-	return git.DeleteRemoteBranch(ctx, git.ParseRepoLocation(repoPath), remoteBranch)
+	res, err := git.DeleteRemoteBranch(ctx, git.ParseRepoLocation(repoPath), remoteBranch)
+	if err == nil && res.Success {
+		s.store.RemovePinnedBranch(repoPath, "refs/remotes/"+strings.TrimSpace(remoteBranch))
+	}
+	return res, err
 }
 
 func (s *GitService) ListTags(repoPath string) ([]git.TagInfo, error) {

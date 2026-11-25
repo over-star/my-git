@@ -116,6 +116,10 @@ export function GetLastCommitMessage(repoPath: string): $CancellablePromise<$mod
     return $Call.ByID(3903880269, repoPath);
 }
 
+export function GetPinnedBranches(repoPath: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1155485365, repoPath);
+}
+
 export function GetRecentRepos(): $CancellablePromise<git$0.RecentRepo[] | null> {
     return $Call.ByID(2960567177);
 }
@@ -274,6 +278,10 @@ export function TestSSHConnection(repoPath: string, sshCommand: string, distroOv
 
 export function ToggleMaximizeWindow(): $CancellablePromise<void> {
     return $Call.ByID(719256415);
+}
+
+export function TogglePinBranch(repoPath: string, fullName: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(432048268, repoPath, fullName);
 }
 
 export function TogglePinRepo(repoPath: string): $CancellablePromise<git$0.RecentRepo[] | null> {

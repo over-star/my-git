@@ -17,6 +17,9 @@ import {
   Copy,
   History,
   UploadCloud,
+  Pin,
+  PinOff,
+  GitCommitHorizontal,
 } from "lucide-react";
 import type {
   BranchInfo,
@@ -30,9 +33,17 @@ interface SidebarProps {
   tags: TagInfo[];
   stashes: StashItem[];
   remotes: RemoteInfo[];
+  pinnedBranches: string[];
   currentBranch: string;
   activeHistoryBranch: string;
-  onInspectBranch: (name: string) => void;
+  branchScopeMode: "branch" | "all";
+  onChangeBranchScopeMode: (mode: "branch" | "all") => void;
+  onInspectBranch: (
+    refName: string,
+    focusSha?: string,
+    forceScope?: "branch" | "all"
+  ) => void;
+  onTogglePinBranch: (fullName: string) => void;
   onCheckout: (name: string, isRemote: boolean) => void;
   onMerge: (name: string) => void;
   onRequestDeleteBranch: (name: string) => void;
@@ -60,9 +71,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tags,
   stashes,
   remotes,
+  pinnedBranches,
   currentBranch,
   activeHistoryBranch,
+  branchScopeMode,
+  onChangeBranchScopeMode,
   onInspectBranch,
+  onTogglePinBranch,
   onCheckout,
   onMerge,
   onRequestDeleteBranch,
@@ -80,6 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onStashDrop,
   onNotify,
 }) => {
+  const [openPinned, setOpenPinned] = useState(true);
   const [openLocal, setOpenLocal] = useState(true);
   const [openRemotes, setOpenRemotes] = useState(true);
   const [openTags, setOpenTags] = useState(false);
@@ -89,8 +105,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
 
   useEffect(() => {
-    if (activeHistoryBranch === "__ALL__") {
-      setSelectedRef(null);
+    if (activeHistoryBranch && activeHistoryBranch !== "__ALL__") {
+      setSelectedRef(
+        activeHistoryBranch.startsWith("refs/tags/")
+          ? `tag:${activeHistoryBranch.slice("refs/tags/".length)}`
+          : activeHistoryBranch
+      );
     }
   }, [activeHistoryBranch]);
 
@@ -120,7 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     e.preventDefault();
     e.stopPropagation();
     setSelectedRef(branch.fullName);
-    const { x, y } = clampMenuPos(e, 290);
+    const { x, y } = clampMenuPos(e, 360);
     setCtxMenu({ kind: "branch", x, y, branch });
   };
 
@@ -135,11 +155,231 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const selectedBranch = ctxMenu?.kind === "branch" ? ctxMenu.branch : null;
   const selectedTag = ctxMenu?.kind === "tag" ? ctxMenu.tag : null;
 
-  const localBranches = branches.filter((b) => !b.isRemote);
+  const pinnedSet = new Set(pinnedBranches);
+  const branchByFullName = new Map(branches.map((b) => [b.fullName, b]));
+  const pinnedBranchItems = pinnedBranches
+    .map((fn) => branchByFullName.get(fn))
+    .filter((b): b is BranchInfo => Boolean(b));
+  const localBranches = branches
+    .filter((b) => !b.isRemote)
+    .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
   const remoteBranches = branches.filter((b) => b.isRemote);
+
+  const renderBranchRow = (b: BranchInfo, keyPrefix: string) => {
+    const isSelected =
+      selectedRef === b.fullName || activeHistoryBranch === b.fullName;
+    const isPinned = pinnedSet.has(b.fullName);
+    return (
+      <div
+        key={`${keyPrefix}:${b.fullName}`}
+        onClick={() => {
+          setSelectedRef(b.fullName);
+          onInspectBranch(b.fullName, b.lastSha);
+        }}
+        onDoubleClick={() => {
+          if (b.isRemote || !b.isCurrent) onCheckout(b.name, b.isRemote);
+        }}
+        onContextMenu={(e) => openBranchContextMenu(e, b)}
+        title={
+          b.isCurrent
+            ? `Current branch: ${b.name} · Click to view Commit Graph · Right-click for actions`
+            : b.isRemote
+            ? `Click to view Commit Graph · Double-click to checkout tracking branch for ${b.name} · Right-click for actions`
+            : `Click to view Commit Graph · Double-click to checkout ${b.name} · Right-click for actions`
+        }
+        className={`group flex items-center justify-between px-2 py-1 rounded-md text-[12px] cursor-pointer transition-colors ${
+          isSelected
+            ? b.isCurrent
+              ? "bg-[#0284c7] text-white font-bold shadow-xs shadow-[inset_3px_0_0_#4ade80]"
+              : "bg-[#0284c7] text-white font-semibold shadow-xs"
+            : b.isCurrent
+            ? "bg-[#ecfdf5] text-[#065f46] font-bold border border-[#a7f3d0] shadow-[inset_3px_0_0_#16a34a]"
+            : b.isRemote
+            ? "text-[#475569] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
+            : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
+        }`}
+      >
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          {b.isCurrent ? (
+            <CheckCircle2
+              className={`w-3.5 h-3.5 shrink-0 ${
+                isSelected ? "text-[#86efac]" : "text-[#16a34a]"
+              }`}
+            />
+          ) : b.isRemote ? (
+            <Cloud
+              className={`w-3.5 h-3.5 shrink-0 ${
+                isSelected ? "text-white/90" : "text-[#ea580c]/80"
+              }`}
+            />
+          ) : (
+            <GitBranch
+              className={`w-3.5 h-3.5 shrink-0 ${
+                isSelected ? "text-white/90" : "text-[#94a3b8]"
+              }`}
+            />
+          )}
+          <span className="truncate">{b.name}</span>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {b.ahead > 0 && (
+            <span
+              title={`${b.ahead} unpushed commit(s)`}
+              className={`px-1.5 py-0.2 rounded-full font-mono text-[10px] font-semibold leading-tight ${
+                isSelected
+                  ? "bg-white/20 text-white"
+                  : "bg-[#0284c7] text-white"
+              }`}
+            >
+              ↑{b.ahead}
+            </span>
+          )}
+          {b.behind > 0 && (
+            <span
+              title={`${b.behind} incoming commit(s) to pull`}
+              className={`px-1.5 py-0.2 rounded-full font-mono text-[10px] font-semibold leading-tight ${
+                isSelected
+                  ? "bg-white/20 text-white"
+                  : "bg-[#fef3c7] border border-[#fde68a] text-[#b45309]"
+              }`}
+            >
+              ↓{b.behind}
+            </span>
+          )}
+          {isPinned && (
+            <button
+              title="Pinned (click to unpin)"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePinBranch(b.fullName);
+              }}
+              className={`p-0.5 rounded cursor-pointer group-hover:hidden ${
+                isSelected
+                  ? "text-white"
+                  : "text-[#d97706] hover:bg-[#fef3c7]"
+              }`}
+            >
+              <Pin className="w-3 h-3 fill-current" />
+            </button>
+          )}
+          {b.isCurrent ? (
+            <>
+              <button
+                title={isPinned ? "Unpin branch" : "Pin branch"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTogglePinBranch(b.fullName);
+                }}
+                className={`p-0.5 rounded cursor-pointer hidden group-hover:inline-flex ${
+                  isSelected
+                    ? "text-white hover:bg-white/20"
+                    : "text-[#d97706] hover:bg-[#dcfce7]"
+                }`}
+              >
+                <Pin className={`w-3 h-3 ${isPinned ? "fill-current" : ""}`} />
+              </button>
+              <span
+                className={`px-1.5 py-[1px] rounded text-[9px] font-mono font-bold tracking-wide ${
+                  isSelected
+                    ? "bg-[#22c55e] text-white"
+                    : "bg-[#16a34a] text-white"
+                }`}
+              >
+                HEAD
+              </span>
+            </>
+          ) : (
+            <div className="hidden group-hover:flex items-center gap-0.5">
+              <button
+                title={isPinned ? `Unpin '${b.name}'` : `Pin '${b.name}'`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTogglePinBranch(b.fullName);
+                }}
+                className={`p-0.5 rounded cursor-pointer ${
+                  isSelected
+                    ? "hover:bg-white/20 text-white"
+                    : isPinned
+                    ? "hover:bg-[#fef3c7] text-[#d97706]"
+                    : "hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#d97706]"
+                }`}
+              >
+                <Pin className={`w-3 h-3 ${isPinned ? "fill-current" : ""}`} />
+              </button>
+              <button
+                title={`Merge '${b.name}' into '${currentBranch}'`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMerge(b.name);
+                }}
+                className={`p-0.5 rounded cursor-pointer ${
+                  isSelected
+                    ? "hover:bg-white/20 text-white"
+                    : "hover:bg-[#dbeafe] text-[#0284c7]"
+                }`}
+              >
+                <GitMerge className="w-3 h-3" />
+              </button>
+              <button
+                title={
+                  b.isRemote
+                    ? `Delete remote branch '${b.name}'`
+                    : `Delete '${b.name}'`
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (b.isRemote) {
+                    onRequestDeleteRemoteBranch(b.name);
+                  } else {
+                    onRequestDeleteBranch(b.name);
+                  }
+                }}
+                className={`p-0.5 rounded cursor-pointer ${
+                  isSelected
+                    ? "hover:bg-white/20 text-white"
+                    : "hover:bg-[#fee2e2] text-[#dc2626]"
+                }`}
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <aside className="w-60 shrink-0 bg-[#f8fafc] border-r border-[#e2e8f0] flex flex-col overflow-y-auto select-none p-1.5 gap-1">
+      {/* PINNED BRANCHES SECTION */}
+      {pinnedBranchItems.length > 0 && (
+        <div className="rounded-lg bg-[#fffbeb]/65 border border-[#fde68a]/80 p-1 mb-0.5">
+          <div className="flex items-center justify-between px-1 py-0.5 text-[#92400e]">
+            <button
+              onClick={() => setOpenPinned((v) => !v)}
+              className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider cursor-pointer"
+            >
+              {openPinned ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" />
+              )}
+              <Pin className="w-3 h-3 text-[#d97706] fill-current" />
+              <span>Pinned</span>
+            </button>
+            <span className="font-mono text-[10px] text-[#b45309]">
+              {pinnedBranchItems.length}
+            </span>
+          </div>
+          {openPinned && (
+            <div className="mt-0.5 flex flex-col gap-0.5">
+              {pinnedBranchItems.map((b) => renderBranchRow(b, "pin"))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* LOCAL BRANCHES */}
       <div>
         <div className="flex items-center justify-between px-1.5 py-1 text-[#64748b] hover:text-[#0b1c30]">
@@ -170,123 +410,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {openLocal && (
           <div className="pl-2 flex flex-col gap-0.5">
-            {localBranches.map((b) => {
-              const isSelected =
-                selectedRef === b.fullName || activeHistoryBranch === b.name;
-              return (
-                <div
-                  key={b.fullName}
-                  onClick={() => {
-                    setSelectedRef(b.fullName);
-                    onInspectBranch(b.name);
-                  }}
-                  onDoubleClick={() => {
-                    if (!b.isCurrent) onCheckout(b.name, false);
-                  }}
-                  onContextMenu={(e) => openBranchContextMenu(e, b)}
-                  title={
-                    b.isCurrent
-                      ? `Current branch: ${b.name} · Click to view Commit Graph · Right-click for actions`
-                      : `Click to view Commit Graph · Double-click to checkout ${b.name} · Right-click for actions`
-                  }
-                  className={`group flex items-center justify-between px-2 py-1 rounded-md text-[12px] cursor-pointer transition-colors ${
-                    isSelected
-                      ? b.isCurrent
-                        ? "bg-[#0284c7] text-white font-bold shadow-xs shadow-[inset_3px_0_0_#4ade80]"
-                        : "bg-[#0284c7] text-white font-semibold shadow-xs"
-                      : b.isCurrent
-                      ? "bg-[#ecfdf5] text-[#065f46] font-bold border border-[#a7f3d0] shadow-[inset_3px_0_0_#16a34a]"
-                      : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                    {b.isCurrent ? (
-                      <CheckCircle2
-                        className={`w-3.5 h-3.5 shrink-0 ${
-                          isSelected ? "text-[#86efac]" : "text-[#16a34a]"
-                        }`}
-                      />
-                    ) : (
-                      <GitBranch
-                        className={`w-3.5 h-3.5 shrink-0 ${
-                          isSelected ? "text-white/90" : "text-[#94a3b8]"
-                        }`}
-                      />
-                    )}
-                    <span className="truncate">{b.name}</span>
-                  </div>
+            {/* Branch Commit View Scope Switcher */}
+            <div className="grid grid-cols-2 gap-0.5 p-0.5 mb-1 rounded-md bg-[#e2e8f0]/75 border border-[#cbd5e1]/60">
+              <button
+                type="button"
+                title="Only show commits reachable from the selected branch"
+                onClick={() => onChangeBranchScopeMode("branch")}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                  branchScopeMode === "branch"
+                    ? "bg-white text-[#0284c7] font-semibold shadow-2xs"
+                    : "text-[#64748b] hover:text-[#0b1c30]"
+                }`}
+              >
+                Selected Only
+              </button>
+              <button
+                type="button"
+                title="Show commits across all branches (clicking a branch highlights its tip)"
+                onClick={() => onChangeBranchScopeMode("all")}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                  branchScopeMode === "all"
+                    ? "bg-white text-[#0284c7] font-semibold shadow-2xs"
+                    : "text-[#64748b] hover:text-[#0b1c30]"
+                }`}
+              >
+                All Commits
+              </button>
+            </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    {b.ahead > 0 && (
-                      <span
-                        title={`${b.ahead} unpushed commit(s)`}
-                        className={`px-1.5 py-0.2 rounded-full font-mono text-[10px] font-semibold leading-tight ${
-                          isSelected
-                            ? "bg-white/20 text-white"
-                            : "bg-[#0284c7] text-white"
-                        }`}
-                      >
-                        ↑{b.ahead}
-                      </span>
-                    )}
-                    {b.behind > 0 && (
-                      <span
-                        title={`${b.behind} incoming commit(s) to pull`}
-                        className={`px-1.5 py-0.2 rounded-full font-mono text-[10px] font-semibold leading-tight ${
-                          isSelected
-                            ? "bg-white/20 text-white"
-                            : "bg-[#fef3c7] border border-[#fde68a] text-[#b45309]"
-                        }`}
-                      >
-                        ↓{b.behind}
-                      </span>
-                    )}
-                    {b.isCurrent ? (
-                      <span
-                        className={`px-1.5 py-[1px] rounded text-[9px] font-mono font-bold tracking-wide ${
-                          isSelected
-                            ? "bg-[#22c55e] text-white"
-                            : "bg-[#16a34a] text-white"
-                        }`}
-                      >
-                        HEAD
-                      </span>
-                    ) : (
-                      <div className="hidden group-hover:flex items-center gap-0.5">
-                        <button
-                          title={`Merge '${b.name}' into '${currentBranch}'`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onMerge(b.name);
-                          }}
-                          className={`p-0.5 rounded cursor-pointer ${
-                            isSelected
-                              ? "hover:bg-white/20 text-white"
-                              : "hover:bg-[#dbeafe] text-[#0284c7]"
-                          }`}
-                        >
-                          <GitMerge className="w-3 h-3" />
-                        </button>
-                        <button
-                          title={`Delete '${b.name}'`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRequestDeleteBranch(b.name);
-                          }}
-                          className={`p-0.5 rounded cursor-pointer ${
-                            isSelected
-                              ? "hover:bg-white/20 text-white"
-                              : "hover:bg-[#fee2e2] text-[#dc2626]"
-                          }`}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {localBranches.map((b) => renderBranchRow(b, "local"))}
           </div>
         )}
       </div>
@@ -317,66 +469,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 No remote branches
               </div>
             ) : (
-              remoteBranches.map((b) => {
-                const isSelected =
-                  selectedRef === b.fullName || activeHistoryBranch === b.name;
-                return (
-                  <div
-                    key={b.fullName}
-                    onClick={() => {
-                      setSelectedRef(b.fullName);
-                      onInspectBranch(b.name);
-                    }}
-                    onDoubleClick={() => onCheckout(b.name, true)}
-                    onContextMenu={(e) => openBranchContextMenu(e, b)}
-                    title={`Click to view Commit Graph · Double-click to checkout tracking branch for ${b.name} · Right-click for actions`}
-                    className={`group flex items-center justify-between px-2 py-1 rounded-md text-[12px] cursor-pointer transition-colors ${
-                      isSelected
-                        ? "bg-[#0284c7] text-white font-semibold shadow-xs"
-                        : "text-[#475569] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <Cloud
-                        className={`w-3.5 h-3.5 shrink-0 ${
-                          isSelected ? "text-white/90" : "text-[#ea580c]/80"
-                        }`}
-                      />
-                      <span className="truncate">{b.name}</span>
-                    </div>
-                    <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-                      <button
-                        title={`Merge '${b.name}' into '${currentBranch}'`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onMerge(b.name);
-                        }}
-                        className={`p-0.5 rounded cursor-pointer ${
-                          isSelected
-                            ? "hover:bg-white/20 text-white"
-                            : "hover:bg-[#dbeafe] text-[#0284c7]"
-                        }`}
-                      >
-                        <GitMerge className="w-3 h-3" />
-                      </button>
-                      <button
-                        title={`Delete remote branch '${b.name}'`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRequestDeleteRemoteBranch(b.name);
-                        }}
-                        className={`p-0.5 rounded cursor-pointer ${
-                          isSelected
-                            ? "hover:bg-white/20 text-white"
-                            : "hover:bg-[#fee2e2] text-[#dc2626]"
-                        }`}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
+              remoteBranches.map((b) => renderBranchRow(b, "remote"))
             )}
           </div>
         )}
@@ -417,15 +510,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ) : (
               <>
                 {(showAllTags ? tags : tags.slice(0, 40)).map((t) => {
+                  const tagRef = `refs/tags/${t.name}`;
                   const isSelected =
                     selectedRef === `tag:${t.name}` ||
-                    activeHistoryBranch === t.name;
+                    activeHistoryBranch === tagRef;
                   return (
                     <div
                       key={t.name}
                       onClick={() => {
                         setSelectedRef(`tag:${t.name}`);
-                        onInspectBranch(t.name);
+                        onInspectBranch(tagRef);
                       }}
                       onDoubleClick={() => onCheckoutTag(t.name)}
                       onContextMenu={(e) => openTagContextMenu(e, t)}
@@ -590,6 +684,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {selectedBranch.name}
           </div>
 
+          <button
+            onClick={() => {
+              const b = selectedBranch;
+              setCtxMenu(null);
+              setSelectedRef(b.fullName);
+              onInspectBranch(b.fullName, b.lastSha, "branch");
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <GitCommitHorizontal className="w-3.5 h-3.5 text-[#0284c7]" />
+            <span>View Only This Branch Commits</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const b = selectedBranch;
+              setCtxMenu(null);
+              setSelectedRef(b.fullName);
+              onInspectBranch(b.fullName, b.lastSha, "all");
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <History className="w-3.5 h-3.5 text-[#0284c7]" />
+            <span>View All Branches Commits</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const b = selectedBranch;
+              setCtxMenu(null);
+              onTogglePinBranch(b.fullName);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#fffbeb] hover:text-[#d97706] cursor-pointer"
+          >
+            {pinnedSet.has(selectedBranch.fullName) ? (
+              <>
+                <PinOff className="w-3.5 h-3.5 text-[#d97706]" />
+                <span>Unpin Branch</span>
+              </>
+            ) : (
+              <>
+                <Pin className="w-3.5 h-3.5 text-[#d97706]" />
+                <span>Pin Branch to Top</span>
+              </>
+            )}
+          </button>
+
+          <div className="my-1 border-t border-[#f1f5f9]" />
+
           {!selectedBranch.isCurrent && (
             <button
               onClick={() => {
@@ -734,7 +877,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               const t = selectedTag;
               setCtxMenu(null);
               setSelectedRef(`tag:${t.name}`);
-              onInspectBranch(t.name);
+              onInspectBranch(`refs/tags/${t.name}`);
             }}
             className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
           >

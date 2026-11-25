@@ -71,12 +71,19 @@ export function App() {
   const [activePath, setActivePath] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("changes");
   const [historyBranch, setHistoryBranch] = useState<string>("__ALL__");
+  const [branchScopeMode, setBranchScopeMode] = useState<"branch" | "all">("branch");
+  const [lastBranchRef, setLastBranchRef] = useState<string>("");
+  const [focusCommitSignal, setFocusCommitSignal] = useState<{
+    sha: string;
+    nonce: number;
+  } | null>(null);
 
   const [status, setStatus] = useState<RepoStatus | null>(null);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [tags, setTags] = useState<TagInfo[]>([]);
   const [stashes, setStashes] = useState<StashItem[]>([]);
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
+  const [pinnedBranches, setPinnedBranches] = useState<string[]>([]);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [globalGitVer, setGlobalGitVer] = useState("");
   const [quickFilter, setQuickFilter] = useState("");
@@ -160,12 +167,13 @@ export function App() {
       const seq = ++refreshSeqRef.current;
       setRefreshing(true);
       try {
-        const [st, br, tg, sh, rm, cfg] = await Promise.all([
+        const [st, br, tg, sh, rm, pins, cfg] = await Promise.all([
           GitService.GetStatus(target),
           GitService.ListBranches(target),
           GitService.ListTags(target),
           GitService.ListStashes(target),
           GitService.ListRemotes(target).catch(() => [] as RemoteInfo[]),
+          GitService.GetPinnedBranches(target).catch(() => [] as string[]),
           GitService.GetGitConfig(target, ""),
         ]);
         if (seq !== refreshSeqRef.current) return;
@@ -174,6 +182,7 @@ export function App() {
         setTags(tg ?? []);
         setStashes(sh ?? []);
         setRemotes(rm ?? []);
+        setPinnedBranches(pins ?? []);
         setEffectiveAuthor({
           name: cfg?.effective?.userName ?? "",
           email: cfg?.effective?.userEmail ?? "",
@@ -236,11 +245,14 @@ export function App() {
   // Refresh whenever activePath changes
   useEffect(() => {
     setHistoryBranch("__ALL__");
+    setLastBranchRef("");
+    setFocusCommitSignal(null);
     setStatus(null);
     setBranches([]);
     setTags([]);
     setStashes([]);
     setRemotes([]);
+    setPinnedBranches([]);
     setRepoSwitcherOpen(false);
     setTabCtxMenu(null);
     if (activePath) {
@@ -703,7 +715,7 @@ export function App() {
         setDeleteTagTarget(null);
         notify("success", res.message);
       }
-      if (historyBranch === tagName) {
+      if (historyBranch === tagName || historyBranch === `refs/tags/${tagName}`) {
         setHistoryBranch("__ALL__");
       }
       await refreshRepo(activeRepo.path);
@@ -1298,11 +1310,54 @@ export function App() {
               tags={tags}
               stashes={stashes}
               remotes={remotes}
+              pinnedBranches={pinnedBranches}
               currentBranch={status?.branch || ""}
               activeHistoryBranch={view === "history" ? historyBranch : ""}
-              onInspectBranch={(branchName) => {
-                setHistoryBranch(branchName);
+              branchScopeMode={branchScopeMode}
+              onChangeBranchScopeMode={(mode) => {
+                setBranchScopeMode(mode);
+                if (mode === "all") {
+                  setHistoryBranch("__ALL__");
+                  setView("history");
+                } else {
+                  const fallback =
+                    lastBranchRef ||
+                    branches.find((b) => b.isCurrent)?.fullName ||
+                    branches[0]?.fullName ||
+                    "__ALL__";
+                  setHistoryBranch(fallback);
+                  setView("history");
+                }
+              }}
+              onInspectBranch={(refName, focusSha, forceScope) => {
+                if (!refName.startsWith("refs/tags/")) {
+                  setLastBranchRef(refName);
+                }
+                const effectiveScope = forceScope ?? branchScopeMode;
+                if (forceScope) {
+                  setBranchScopeMode(forceScope);
+                }
+                if (effectiveScope === "all" && !refName.startsWith("refs/tags/")) {
+                  setHistoryBranch("__ALL__");
+                  if (focusSha) {
+                    setFocusCommitSignal({ sha: focusSha, nonce: Date.now() });
+                  }
+                } else {
+                  setHistoryBranch(refName);
+                }
                 setView("history");
+              }}
+              onTogglePinBranch={async (fullName) => {
+                if (!activeRepo) return;
+                try {
+                  const next = await GitService.TogglePinBranch(
+                    activeRepo.path,
+                    fullName
+                  );
+                  setPinnedBranches(next ?? []);
+                } catch (err) {
+                  notify("error", `Pin branch failed: ${err}`);
+                }
               }}
               onCheckout={handleCheckout}
               onMerge={handleMerge}
@@ -1354,7 +1409,18 @@ export function App() {
                   branches={branches}
                   tags={tags}
                   selectedBranch={historyBranch}
-                  onSelectBranch={setHistoryBranch}
+                  onSelectBranch={(ref) => {
+                    setHistoryBranch(ref);
+                    if (ref === "__ALL__") {
+                      setBranchScopeMode("all");
+                    } else {
+                      setBranchScopeMode("branch");
+                      if (!ref.startsWith("refs/tags/")) {
+                        setLastBranchRef(ref);
+                      }
+                    }
+                  }}
+                  focusCommitSignal={focusCommitSignal}
                   refreshKey={historyRefreshKey}
                   externalSearch={quickFilter}
                   onCreateBranchFromCommit={(sha) =>
