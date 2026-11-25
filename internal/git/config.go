@@ -170,6 +170,10 @@ func SaveGitConfig(ctx context.Context, upd GitConfigUpdate) (OpResult, error) {
 		}
 	}
 
+	if isLocal && loc.Path != "" {
+		_, _, _ = RunGit(ctx, loc, "update-index", "--really-refresh", "-q")
+	}
+
 	targetLabel := "Global (Windows)"
 	if isLocal {
 		targetLabel = "Repository (" + loc.Name + ")"
@@ -193,6 +197,9 @@ func SetRepoConfigKey(ctx context.Context, repoPath, key, value string) (OpResul
 			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
 			Output:  combined,
 		}, nil
+	}
+	if key == "core.filemode" || key == "core.autocrlf" {
+		_, _, _ = RunGit(ctx, loc, "update-index", "--really-refresh", "-q")
 	}
 	return OpResult{
 		Success: true,

@@ -14,6 +14,7 @@ import type {
   RepoStatus,
 } from "../../bindings/gitpulse/internal/git/models";
 import { GitService } from "../../bindings/gitpulse";
+import { ConfirmDangerModal } from "./Dialogs";
 
 interface ConflictViewProps {
   repo: RepoLocation;
@@ -36,6 +37,7 @@ export const ConflictView: React.FC<ConflictViewProps> = ({
   const [draftText, setDraftText] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [abortConfirmOpen, setAbortConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (conflicted.length > 0) {
@@ -142,6 +144,7 @@ export const ConflictView: React.FC<ConflictViewProps> = ({
   };
 
   const handleAbortMerge = async () => {
+    setAbortConfirmOpen(false);
     try {
       const res = await GitService.AbortMerge(repo.path);
       if (res.success) {
@@ -177,13 +180,21 @@ export const ConflictView: React.FC<ConflictViewProps> = ({
               Go to Commit Panel
             </button>
             <button
-              onClick={handleAbortMerge}
+              onClick={() => setAbortConfirmOpen(true)}
               className="px-3 py-1.5 rounded bg-[#fef2f2] border border-[#fecaca] text-[#dc2626] text-xs font-medium hover:bg-[#fee2e2] cursor-pointer"
             >
               Abort Merge
             </button>
           </div>
         )}
+        <ConfirmDangerModal
+          open={abortConfirmOpen}
+          title="Abort In-Progress Merge?"
+          description="This will abort the current merge and discard any conflict edits, restoring the working tree to HEAD."
+          confirmLabel="Abort Merge"
+          onCancel={() => setAbortConfirmOpen(false)}
+          onConfirm={handleAbortMerge}
+        />
       </div>
     );
   }
@@ -222,7 +233,7 @@ export const ConflictView: React.FC<ConflictViewProps> = ({
             </button>
           )}
           <button
-            onClick={handleAbortMerge}
+            onClick={() => setAbortConfirmOpen(true)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#fef2f2] border border-[#fecaca] hover:bg-[#fee2e2] text-xs font-medium text-[#dc2626] cursor-pointer"
           >
             <XCircle className="w-3.5 h-3.5" />
@@ -371,6 +382,15 @@ export const ConflictView: React.FC<ConflictViewProps> = ({
           )}
         </div>
       </div>
+
+      <ConfirmDangerModal
+        open={abortConfirmOpen}
+        title="Abort In-Progress Merge?"
+        description="This will abort the current merge and discard any unresolved conflict edits, restoring the working tree to HEAD."
+        confirmLabel="Abort Merge"
+        onCancel={() => setAbortConfirmOpen(false)}
+        onConfirm={handleAbortMerge}
+      />
     </div>
   );
 };

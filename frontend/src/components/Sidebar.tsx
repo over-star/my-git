@@ -58,7 +58,7 @@ interface SidebarProps {
   onRequestStashPush: () => void;
   onStashApply: (ref: string) => void;
   onStashPop: (ref: string) => void;
-  onStashDrop: (ref: string) => void;
+  onStashDrop: (stash: StashItem) => void;
   onNotify: (type: "success" | "error" | "info", msg: string) => void;
 }
 
@@ -106,13 +106,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   useEffect(() => {
     if (activeHistoryBranch && activeHistoryBranch !== "__ALL__") {
-      setSelectedRef(
-        activeHistoryBranch.startsWith("refs/tags/")
-          ? `tag:${activeHistoryBranch.slice("refs/tags/".length)}`
-          : activeHistoryBranch
-      );
+      setSelectedRef((prev) => {
+        if (prev && prev.endsWith(`:${activeHistoryBranch}`)) {
+          return prev;
+        }
+        if (activeHistoryBranch.startsWith("refs/tags/")) {
+          return `tag:${activeHistoryBranch.slice("refs/tags/".length)}`;
+        }
+        const match = branches.find((b) => b.fullName === activeHistoryBranch);
+        if (match) {
+          return `${match.isRemote ? "remote" : "local"}:${match.fullName}`;
+        }
+        return prev;
+      });
     }
-  }, [activeHistoryBranch]);
+  }, [activeHistoryBranch, branches]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -136,10 +144,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   };
 
-  const openBranchContextMenu = (e: React.MouseEvent, branch: BranchInfo) => {
+  const openBranchContextMenu = (
+    e: React.MouseEvent,
+    branch: BranchInfo,
+    keyPrefix: string
+  ) => {
     e.preventDefault();
     e.stopPropagation();
-    setSelectedRef(branch.fullName);
+    setSelectedRef(`${keyPrefix}:${branch.fullName}`);
     const { x, y } = clampMenuPos(e, 360);
     setCtxMenu({ kind: "branch", x, y, branch });
   };
@@ -166,20 +178,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const remoteBranches = branches.filter((b) => b.isRemote);
 
   const renderBranchRow = (b: BranchInfo, keyPrefix: string) => {
-    const isSelected =
-      selectedRef === b.fullName || activeHistoryBranch === b.fullName;
+    const rowKey = `${keyPrefix}:${b.fullName}`;
+    const isSelected = selectedRef === rowKey;
     const isPinned = pinnedSet.has(b.fullName);
     return (
       <div
-        key={`${keyPrefix}:${b.fullName}`}
+        key={rowKey}
         onClick={() => {
-          setSelectedRef(b.fullName);
+          setSelectedRef(rowKey);
           onInspectBranch(b.fullName, b.lastSha);
         }}
         onDoubleClick={() => {
           if (b.isRemote || !b.isCurrent) onCheckout(b.name, b.isRemote);
         }}
-        onContextMenu={(e) => openBranchContextMenu(e, b)}
+        onContextMenu={(e) => openBranchContextMenu(e, b, keyPrefix)}
         title={
           b.isCurrent
             ? `Current branch: ${b.name} · Click to view Commit Graph · Right-click for actions`
@@ -190,10 +202,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`group flex items-center justify-between px-2 py-1 rounded-md text-[12px] cursor-pointer transition-colors ${
           isSelected
             ? b.isCurrent
-              ? "bg-[#0284c7] text-white font-bold shadow-xs shadow-[inset_3px_0_0_#4ade80]"
+              ? "bg-[#0284c7] text-white font-bold shadow-xs"
               : "bg-[#0284c7] text-white font-semibold shadow-xs"
             : b.isCurrent
-            ? "bg-[#ecfdf5] text-[#065f46] font-bold border border-[#a7f3d0] shadow-[inset_3px_0_0_#16a34a]"
+            ? "text-[#0b1c30] font-bold hover:bg-[#f1f5f9]"
             : b.isRemote
             ? "text-[#475569] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
             : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
@@ -203,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {b.isCurrent ? (
             <CheckCircle2
               className={`w-3.5 h-3.5 shrink-0 ${
-                isSelected ? "text-[#86efac]" : "text-[#16a34a]"
+                isSelected ? "text-white" : "text-[#0284c7]"
               }`}
             />
           ) : b.isRemote ? (
@@ -274,7 +286,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className={`p-0.5 rounded cursor-pointer hidden group-hover:inline-flex ${
                   isSelected
                     ? "text-white hover:bg-white/20"
-                    : "text-[#d97706] hover:bg-[#dcfce7]"
+                    : "text-[#d97706] hover:bg-[#fef3c7]"
                 }`}
               >
                 <Pin className={`w-3 h-3 ${isPinned ? "fill-current" : ""}`} />
@@ -282,8 +294,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span
                 className={`px-1.5 py-[1px] rounded text-[9px] font-mono font-bold tracking-wide ${
                   isSelected
-                    ? "bg-[#22c55e] text-white"
-                    : "bg-[#16a34a] text-white"
+                    ? "bg-white/20 text-white"
+                    : "bg-[#e0f2fe] text-[#0369a1]"
                 }`}
               >
                 HEAD
@@ -660,7 +672,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </button>
                     <button
                       title="Drop (delete)"
-                      onClick={() => onStashDrop(s.ref)}
+                      onClick={() => onStashDrop(s)}
                       className="p-0.5 rounded hover:bg-[#fee2e2] text-[#dc2626] cursor-pointer"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -688,7 +700,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => {
               const b = selectedBranch;
               setCtxMenu(null);
-              setSelectedRef(b.fullName);
               onInspectBranch(b.fullName, b.lastSha, "branch");
             }}
             className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
@@ -701,7 +712,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => {
               const b = selectedBranch;
               setCtxMenu(null);
-              setSelectedRef(b.fullName);
               onInspectBranch(b.fullName, b.lastSha, "all");
             }}
             className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"

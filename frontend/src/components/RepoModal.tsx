@@ -25,6 +25,7 @@ import type {
   WSLEntry,
 } from "../../bindings/gitpulse/internal/git/models";
 import { GitService } from "../../bindings/gitpulse";
+import { ConfirmDangerModal } from "./Dialogs";
 
 interface RepoModalProps {
   isOpen: boolean;
@@ -48,6 +49,9 @@ export const RepoModal: React.FC<RepoModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [notGitTarget, setNotGitTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [removeRecentTarget, setRemoveRecentTarget] = useState<RecentRepo | null>(
+    null
+  );
 
   // WSL2 browser state
   const [distros, setDistros] = useState<WSLDistro[]>([]);
@@ -262,8 +266,15 @@ export const RepoModal: React.FC<RepoModalProps> = ({
     setRecents(list ?? []);
   };
 
-  const handleRemoveRecent = async (e: React.MouseEvent, p: string) => {
+  const handleRemoveRecent = (e: React.MouseEvent, r: RecentRepo) => {
     e.stopPropagation();
+    setRemoveRecentTarget(r);
+  };
+
+  const confirmRemoveRecent = async () => {
+    if (!removeRecentTarget) return;
+    const p = removeRecentTarget.path;
+    setRemoveRecentTarget(null);
     const list = await GitService.RemoveRecentRepo(p);
     setRecents(list ?? []);
   };
@@ -504,7 +515,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                           </button>
                           <button
                             title="Remove from recent list (keeps local files)"
-                            onClick={(e) => handleRemoveRecent(e, r.path)}
+                            onClick={(e) => handleRemoveRecent(e, r)}
                             className="p-1.5 rounded hover:bg-[#fee2e2] text-[#64748b] hover:text-[#dc2626] cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -929,6 +940,24 @@ export const RepoModal: React.FC<RepoModalProps> = ({
           )}
         </div>
       </div>
+
+      <ConfirmDangerModal
+        open={Boolean(removeRecentTarget)}
+        title="Remove Recent Repository?"
+        description="Remove this repository from the GitPulse recent list? Local files on disk will NOT be deleted."
+        detail={
+          removeRecentTarget
+            ? `${removeRecentTarget.name} (${
+                removeRecentTarget.isWsl
+                  ? removeRecentTarget.linuxPath
+                  : removeRecentTarget.path
+              })`
+            : undefined
+        }
+        confirmLabel="Remove from List"
+        onCancel={() => setRemoveRecentTarget(null)}
+        onConfirm={confirmRemoveRecent}
+      />
     </div>
   );
 };

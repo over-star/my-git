@@ -44,6 +44,7 @@ import { RepoModal } from "./components/RepoModal";
 import { GitConfigModal, httpsToSshUrl } from "./components/GitConfigModal";
 import {
   CheckoutConflictModal,
+  ConfirmDangerModal,
   CreateBranchModal,
   CreateTagModal,
   DeleteBranchModal,
@@ -121,6 +122,7 @@ export function App() {
     errorMessage: string;
   } | null>(null);
   const [stashModalOpen, setStashModalOpen] = useState(false);
+  const [dropStashTarget, setDropStashTarget] = useState<StashItem | null>(null);
   const [tagModal, setTagModal] = useState<{ open: boolean; target: string }>({
     open: false,
     target: "",
@@ -1383,7 +1385,7 @@ export function App() {
               onRequestStashPush={() => setStashModalOpen(true)}
               onStashApply={(ref) => handleStashOp("apply", ref)}
               onStashPop={(ref) => handleStashOp("pop", ref)}
-              onStashDrop={(ref) => handleStashOp("drop", ref)}
+              onStashDrop={(stash) => setDropStashTarget(stash)}
               onNotify={notify}
             />
 
@@ -1604,6 +1606,24 @@ export function App() {
         busy={tagOpBusy}
         onCancel={() => setPushTagTarget(null)}
         onConfirm={executePushTag}
+      />
+
+      <ConfirmDangerModal
+        open={Boolean(dropStashTarget)}
+        title="Drop Stash?"
+        description="This will permanently delete this stash entry and its saved changes:"
+        detail={
+          dropStashTarget
+            ? `${dropStashTarget.ref}: ${dropStashTarget.message}`
+            : undefined
+        }
+        confirmLabel="Drop Stash"
+        onCancel={() => setDropStashTarget(null)}
+        onConfirm={() => {
+          const target = dropStashTarget;
+          setDropStashTarget(null);
+          if (target) handleStashOp("drop", target.ref);
+        }}
       />
 
       {/* REPO TAB CONTEXT MENU */}

@@ -9,6 +9,8 @@ interface DiffViewerProps {
   mode: "unified" | "split";
   emptyMessage?: string;
   onDisableFileMode?: () => void;
+  onDisableAutoCRLF?: () => void;
+  onRestoreFile?: () => void;
 }
 
 interface SplitRow {
@@ -60,6 +62,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   mode,
   emptyMessage = "Select a file to inspect its diff",
   onDisableFileMode,
+  onDisableAutoCRLF,
+  onRestoreFile,
 }) => {
   const hunks = diff?.hunks ?? [];
 
@@ -154,13 +158,33 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
               ? "Git detected an executable permission change without content edits. This commonly happens across Windows / WSL2 filesystems."
               : "File content matches HEAD, or only line endings (CRLF/LF) / file permissions differ (common between Windows and WSL2)."}
           </p>
-          {onDisableFileMode && (
-            <button
-              onClick={onDisableFileMode}
-              className="mt-1 px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-[11px] font-medium cursor-pointer"
-            >
-              Ignore File Permissions (core.filemode = false)
-            </button>
+          {(onDisableFileMode || onDisableAutoCRLF || onRestoreFile) && (
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+              {onDisableFileMode && (
+                <button
+                  onClick={onDisableFileMode}
+                  className="px-2.5 py-1 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-[11px] font-medium cursor-pointer"
+                >
+                  Ignore Permissions (filemode=false)
+                </button>
+              )}
+              {onDisableAutoCRLF && (
+                <button
+                  onClick={onDisableAutoCRLF}
+                  className="px-2.5 py-1 rounded bg-white border border-[#cbd5e1] hover:bg-[#f1f5f9] text-[#0b1c30] text-[11px] font-medium cursor-pointer"
+                >
+                  No CRLF Conversion (autocrlf=false)
+                </button>
+              )}
+              {onRestoreFile && (
+                <button
+                  onClick={onRestoreFile}
+                  className="px-2.5 py-1 rounded bg-white border border-[#fca5a5] hover:bg-[#fef2f2] text-[#dc2626] text-[11px] font-medium cursor-pointer"
+                >
+                  Restore to HEAD...
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

@@ -949,3 +949,63 @@ export const PushTagModal: React.FC<{
     </div>
   );
 };
+
+export const ConfirmDangerModal: React.FC<{
+  open: boolean;
+  title: string;
+  description: string;
+  detail?: string;
+  confirmLabel?: string;
+  busy?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}> = ({
+  open,
+  title,
+  description,
+  detail,
+  confirmLabel = "Confirm Delete",
+  busy,
+  onCancel,
+  onConfirm,
+}) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white border border-[#cbd5e1] rounded-xl shadow-xl p-4 flex flex-col gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-[#fef2f2] text-[#dc2626] flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-[#0b1c30]">{title}</h3>
+            <p className="text-xs text-[#64748b] mt-1 leading-relaxed">
+              {description}
+            </p>
+            {detail && (
+              <div className="mt-2 px-2 py-1.5 rounded bg-[#fef2f2] border border-[#fecaca] font-mono text-[11px] text-[#991b1b] break-all max-h-28 overflow-y-auto">
+                {detail}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            onClick={onCancel}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-white border border-[#e2e8f0] hover:bg-[#f8fafc] text-xs font-medium text-[#334155] cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-[#dc2626] hover:bg-[#b91c1c] text-white text-xs font-medium disabled:opacity-50 cursor-pointer"
+          >
+            {busy ? "Processing..." : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

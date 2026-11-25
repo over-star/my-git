@@ -20,6 +20,7 @@ import type {
 import { GitService } from "../../bindings/gitpulse";
 import { DiffViewer } from "./DiffViewer";
 import { StatusBadge, getStatusTextColor } from "./StatusBadge";
+import { ConfirmDangerModal } from "./Dialogs";
 
 interface ChangesViewProps {
   repo: RepoLocation;
@@ -65,6 +66,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   const [amend, setAmend] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [busyPath, setBusyPath] = useState<string | null>(null);
+  const [abortConfirmOpen, setAbortConfirmOpen] = useState(false);
 
   // Auto-select first available file if selection disappears
   useEffect(() => {
@@ -340,6 +342,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   };
 
   const handleAbortMerge = async () => {
+    setAbortConfirmOpen(false);
     try {
       const res = await GitService.AbortMerge(repo.path);
       if (res.success) {
@@ -355,6 +358,16 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
 
   const summaryTooLong = summary.length > 50;
   const commitDisabled = committing || staged.length === 0 || !summary.trim();
+
+  const applyRepoConfigKey = async (key: string, value: string) => {
+    const res = await GitService.SetRepoConfigKey(repo.path, key, value);
+    if (res.success) {
+      onNotify("success", `Set ${key} = ${value} and refreshed index`);
+      await onRefresh();
+    } else {
+      onNotify("error", res.message);
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-[#f8fafc]">
@@ -387,7 +400,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
               </button>
             )}
             <button
-              onClick={handleAbortMerge}
+              onClick={() => setAbortConfirmOpen(true)}
               className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-white border border-[#fecaca] text-[#dc2626] hover:bg-[#fee2e2] transition-colors cursor-pointer"
             >
               <XCircle className="w-3.5 h-3.5" />
@@ -867,19 +880,13 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                 diff={diff}
                 loading={diffLoading}
                 mode={diffMode}
-                onDisableFileMode={async () => {
-                  const res = await GitService.SetRepoConfigKey(
-                    repo.path,
-                    "core.filemode",
-                    "false"
-                  );
-                  if (res.success) {
-                    onNotify("success", "Set core.filemode = false for this repository");
-                    await onRefresh();
-                  } else {
-                    onNotify("error", res.message);
-                  }
-                }}
+                onDisableFileMode={() => applyRepoConfigKey("core.filemode", "false")}
+                onDisableAutoCRLF={() => applyRepoConfigKey("core.autocrlf", "false")}
+                onRestoreFile={
+                  !selected.staged && selected.file.status !== "?"
+                    ? () => onConfirmDiscard([selected.file])
+                    : undefined
+                }
               />
             </>
           ) : (
@@ -895,6 +902,15 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
           )}
         </div>
       </div>
+
+      <ConfirmDangerModal
+        open={abortConfirmOpen}
+        title="Abort In-Progress Merge?"
+        description="This will abort the current merge and discard any unresolved conflict edits, restoring the working tree to HEAD."
+        confirmLabel="Abort Merge"
+        onCancel={() => setAbortConfirmOpen(false)}
+        onConfirm={handleAbortMerge}
+      />
     </div>
   );
 };
