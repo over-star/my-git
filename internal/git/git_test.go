@@ -183,6 +183,25 @@ func TestGitEndToEndLocalRepo(t *testing.T) {
 	}
 }
 
+func TestBrowseWSLDirLive(t *testing.T) {
+	ctx := context.Background()
+	distros, err := ListWSLDistros(ctx)
+	if err != nil || len(distros) == 0 {
+		t.Skip("No WSL2 distro available")
+	}
+	entries, resolved, err := BrowseWSLDir(ctx, distros[0].Name, "/")
+	if err != nil {
+		t.Fatalf("BrowseWSLDir(/) failed: %v", err)
+	}
+	if resolved != "/" {
+		t.Fatalf("expected resolved=/, got %q", resolved)
+	}
+	if len(entries) == 0 {
+		t.Fatalf("expected non-empty root entries for WSL2 /")
+	}
+	t.Logf("WSL %s / resolved=%q entries=%d first=%s", distros[0].Name, resolved, len(entries), entries[0].Path)
+}
+
 func TestGitMergeConflictAndAbort(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

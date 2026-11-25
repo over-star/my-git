@@ -13,8 +13,6 @@ import {
   ExternalLink,
   RotateCcw,
   History,
-  FolderTree,
-  List,
   Folder,
   FileCode2,
   FileArchive,
@@ -22,7 +20,6 @@ import {
 import type {
   BranchInfo,
   CommitDetail,
-  CommitFileChange,
   CommitFileContent,
   CommitItem,
   CommitTreeEntry,
@@ -135,13 +132,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
   const [ignoreWs, setIgnoreWs] = useState(false);
 
-  // Changed vs All Files at commit + Tree vs Flat List
+  // Changes (flat list) vs File Tree (collapsed by default)
   const [fileScope, setFileScope] = useState<"changed" | "all">("changed");
-  const [fileViewMode, setFileViewMode] = useState<"tree" | "list">("tree");
   const [fileFilter, setFileFilter] = useState("");
   const [treeEntries, setTreeEntries] = useState<CommitTreeEntry[]>([]);
   const [treeLoading, setTreeLoading] = useState(false);
-  const [collapsedDirs, setCollapsedDirs] = useState<Record<string, boolean>>({});
+  const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
   const [snapshotContent, setSnapshotContent] = useState<CommitFileContent | null>(
     null
   );
@@ -251,7 +247,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     let cancelled = false;
     setDetailLoading(true);
     setTreeLoading(true);
-    setCollapsedDirs({});
+    setExpandedDirs({});
 
     Promise.all([
       GitService.GetCommitDetail(repo.path, selectedHash),
@@ -403,29 +399,24 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     return treeEntries.filter((f) => f.path.toLowerCase().includes(q));
   }, [treeEntries, fileFilter]);
 
-  const changedTree = useMemo(
-    () => buildFileTree<CommitFileChange>(filteredChangedFiles),
-    [filteredChangedFiles]
-  );
-
   const allTree = useMemo(
     () => buildFileTree<CommitTreeEntry>(filteredTreeEntries),
     [filteredTreeEntries]
   );
 
   const toggleDir = (dirPath: string) => {
-    setCollapsedDirs((prev) => ({ ...prev, [dirPath]: !prev[dirPath] }));
+    setExpandedDirs((prev) => ({ ...prev, [dirPath]: !prev[dirPath] }));
   };
 
-  const renderTreeNodes = <T extends { path: string }>(
-    nodes: TreeNode<T>[],
-    depth: number,
-    renderLeafExtra: (item: T) => React.ReactNode
+  const renderTreeNodes = (
+    nodes: TreeNode<CommitTreeEntry>[],
+    depth: number
   ): React.ReactNode => {
     return nodes.map((node) => {
       if (!node.file) {
-        const isCollapsed =
-          Boolean(collapsedDirs[node.path]) && !fileFilter.trim();
+        // Default collapsed unless explicitly expanded or filtering
+        const isExpanded =
+          Boolean(expandedDirs[node.path]) || Boolean(fileFilter.trim());
         return (
           <div key={`dir:${node.path}`}>
             <div
@@ -434,10 +425,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               className="flex items-center justify-between pr-2 py-1 rounded hover:bg-[#f8fafc] text-[#334155] cursor-pointer select-none"
             >
               <div className="flex items-center gap-1 min-w-0">
-                {isCollapsed ? (
-                  <ChevronRight className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
-                ) : (
+                {isExpanded ? (
                   <ChevronDown className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
                 )}
                 <Folder className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
                 <span className="font-mono text-[11px] truncate">{node.name}</span>
@@ -446,8 +437,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 {node.fileCount}
               </span>
             </div>
-            {!isCollapsed &&
-              renderTreeNodes(node.children, depth + 1, renderLeafExtra)}
+            {isExpanded && renderTreeNodes(node.children, depth + 1)}
           </div>
         );
       }
@@ -467,33 +457,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           }`}
         >
           <div className="flex items-center gap-1.5 min-w-0 pr-2">
-            {renderLeafExtra(item)}
+            <FileCode2 className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
             <span className="font-mono text-[11px] truncate">{node.name}</span>
           </div>
-          {fileScope === "changed" ? (
-            <span className="font-mono text-[10px] shrink-0">
-              {(item as unknown as CommitFileChange).isBinary ? (
-                <span className="text-[#64748b]">BIN</span>
-              ) : (
-                <>
-                  {(item as unknown as CommitFileChange).additions > 0 && (
-                    <span className="text-[#16a34a] mr-1">
-                      +{(item as unknown as CommitFileChange).additions}
-                    </span>
-                  )}
-                  {(item as unknown as CommitFileChange).deletions > 0 && (
-                    <span className="text-[#dc2626]">
-                      -{(item as unknown as CommitFileChange).deletions}
-                    </span>
-                  )}
-                </>
-              )}
-            </span>
-          ) : (
-            <span className="font-mono text-[10px] text-[#94a3b8] shrink-0">
-              {formatBytes((item as unknown as CommitTreeEntry).size)}
-            </span>
-          )}
+          <span className="font-mono text-[10px] text-[#94a3b8] shrink-0">
+            {formatBytes(item.size)}
+          </span>
         </div>
       );
     });
@@ -865,7 +834,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 </div>
               </div>
 
-              {/* Changed Files vs All Files Header */}
+              {/* Changes vs File Tree Header */}
               <div className="px-2 py-1.5 bg-[#f1f5f9] border-b border-[#e2e8f0] flex flex-col gap-1.5 shrink-0">
                 <div className="flex items-center justify-between gap-1">
                   <div className="flex items-center gap-1">
@@ -881,7 +850,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                           : "text-[#64748b] hover:text-[#0b1c30]"
                       }`}
                     >
-                      Changed ({(detail.files ?? []).length})
+                      Changes ({(detail.files ?? []).length})
                     </button>
                     <button
                       onClick={() => {
@@ -896,32 +865,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                           : "text-[#64748b] hover:text-[#0b1c30]"
                       }`}
                     >
-                      All Files ({treeLoading ? "..." : treeEntries.length})
-                    </button>
-                  </div>
-
-                  <div className="flex items-center bg-white border border-[#e2e8f0] rounded p-0.5">
-                    <button
-                      title="File Tree View"
-                      onClick={() => setFileViewMode("tree")}
-                      className={`p-0.5 rounded cursor-pointer ${
-                        fileViewMode === "tree"
-                          ? "bg-[#f0f9ff] text-[#0284c7]"
-                          : "text-[#64748b]"
-                      }`}
-                    >
-                      <FolderTree className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      title="Flat List View"
-                      onClick={() => setFileViewMode("list")}
-                      className={`p-0.5 rounded cursor-pointer ${
-                        fileViewMode === "list"
-                          ? "bg-[#f0f9ff] text-[#0284c7]"
-                          : "text-[#64748b]"
-                      }`}
-                    >
-                      <List className="w-3.5 h-3.5" />
+                      File Tree ({treeLoading ? "..." : treeEntries.length})
                     </button>
                   </div>
                 </div>
@@ -935,7 +879,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     placeholder={
                       fileScope === "changed"
                         ? "Filter changed files..."
-                        : "Filter all files at this commit..."
+                        : "Filter files in tree..."
                     }
                     className="w-full bg-transparent text-[11px] outline-none placeholder:text-[#94a3b8]"
                   />
@@ -948,10 +892,6 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     <div className="py-6 text-center text-[11px] text-[#94a3b8]">
                       No matching changed files
                     </div>
-                  ) : fileViewMode === "tree" ? (
-                    renderTreeNodes(changedTree, 0, (f) => (
-                      <StatusBadge status={f.status} />
-                    ))
                   ) : (
                     filteredChangedFiles.map((f) => {
                       const active = f.path === selectedFile;
@@ -1001,35 +941,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   <div className="py-6 text-center text-[11px] text-[#94a3b8]">
                     No files at this commit
                   </div>
-                ) : fileViewMode === "tree" ? (
-                  renderTreeNodes(allTree, 0, () => (
-                    <FileCode2 className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
-                  ))
                 ) : (
-                  filteredTreeEntries.slice(0, 1000).map((f) => {
-                    const active = f.path === selectedFile;
-                    return (
-                      <div
-                        key={f.path}
-                        onClick={() => setSelectedFile(f.path)}
-                        className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
-                          active
-                            ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
-                            : "hover:bg-[#f8fafc] text-[#334155]"
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                          <FileCode2 className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
-                          <span className="font-mono text-[11px] truncate">
-                            {f.path}
-                          </span>
-                        </div>
-                        <span className="font-mono text-[10px] text-[#94a3b8] shrink-0">
-                          {formatBytes(f.size)}
-                        </span>
-                      </div>
-                    );
-                  })
+                  renderTreeNodes(allTree, 0)
                 )}
               </div>
             </>

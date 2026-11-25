@@ -32,13 +32,13 @@ func ParseRepoLocation(rawPath string) RepoLocation {
 		if len(parts) > 1 && parts[1] != "" {
 			linuxPath = "/" + strings.TrimLeft(parts[1], "/")
 		}
-		winPath := `\\wsl.localhost\` + distro + strings.ReplaceAll(linuxPath, "/", `\`)
+		linuxPath = path.Clean(linuxPath)
 		name := path.Base(linuxPath)
 		if name == "/" || name == "." || name == "" {
 			name = distro
 		}
 		return RepoLocation{
-			Path:      winPath,
+			Path:      fmt.Sprintf("wsl://%s%s", distro, linuxPath),
 			Name:      name,
 			IsWSL:     true,
 			Distro:    distro,
@@ -59,16 +59,12 @@ func ParseRepoLocation(rawPath string) RepoLocation {
 				linuxPath = "/" + strings.ReplaceAll(strings.TrimLeft(parts[1], `\`), `\`, "/")
 			}
 			linuxPath = path.Clean(linuxPath)
-			winPath := `\\wsl.localhost\` + distro
-			if linuxPath != "/" {
-				winPath += strings.ReplaceAll(linuxPath, "/", `\`)
-			}
 			name := path.Base(linuxPath)
 			if name == "/" || name == "." || name == "" {
 				name = distro
 			}
 			return RepoLocation{
-				Path:      winPath,
+				Path:      fmt.Sprintf("wsl://%s%s", distro, linuxPath),
 				Name:      name,
 				IsWSL:     true,
 				Distro:    distro,
@@ -232,8 +228,10 @@ func wslHasSSHKeys(ctx context.Context, distro string) bool {
   case "$f" in *.pub) continue ;; esac
   exit 0
 done
-exit 1`
-	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-c", script)
+exit 1
+`
+	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-s")
+	cmd.Stdin = strings.NewReader(script)
 	hideWindow(cmd)
 	return cmd.Run() == nil
 }
@@ -341,7 +339,8 @@ func ListWSLDistros(ctx context.Context) ([]WSLDistro, error) {
 }
 
 func getWSLHome(ctx context.Context, distro string) string {
-	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-c", "printf %s \"$HOME\"")
+	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-s")
+	cmd.Stdin = strings.NewReader(`printf '%s' "$HOME"`)
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
@@ -361,23 +360,27 @@ func BrowseWSLDir(ctx context.Context, distro, linuxPath string) ([]WSLEntry, st
 	}
 	target := strings.TrimSpace(linuxPath)
 	if target == "" {
-		target = getWSLHome(ctx, distro)
+		target = "/"
 	}
 	target = path.Clean(target)
+	if !strings.HasPrefix(target, "/") {
+		target = "/" + target
+	}
 
-	script := `cd "$1" 2>/dev/null || exit 1
-pwd
+	script := `pwd
 for d in * .[!.]*; do
-  [ -d "$d" ] || continue
+  [ -d "$d" ] 2>/dev/null || continue
   [ "$d" = ".git" ] && continue
   if [ -e "$d/.git" ]; then
-    printf 'GIT\t%s\n' "$d"
+    printf 'GIT|%s\n' "$d"
   else
-    printf 'DIR\t%s\n' "$d"
+    printf 'DIR|%s\n' "$d"
   fi
-done`
+done
+`
 
-	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-c", script, "sh", target)
+	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--cd", target, "--", "sh", "-s")
+	cmd.Stdin = strings.NewReader(script)
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
@@ -396,7 +399,7 @@ done`
 			resolved = line
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 2)
+		parts := strings.SplitN(line, "|", 2)
 		if len(parts) != 2 {
 			continue
 		}
@@ -441,9 +444,15 @@ func decodeWSLOutput(raw []byte) string {
 // OpenInExplorer opens the repository or selected file in Windows Explorer.
 func OpenInExplorer(loc RepoLocation, relPath string) error {
 	target := loc.Path
+	if loc.IsWSL {
+		target = `\\wsl.localhost\` + loc.Distro
+		if loc.LinuxPath != "" && loc.LinuxPath != "/" {
+			target += strings.ReplaceAll(loc.LinuxPath, "/", `\`)
+		}
+	}
 	if relPath != "" {
 		cleanRel := strings.ReplaceAll(relPath, "/", `\`)
-		target = filepath.Join(loc.Path, cleanRel)
+		target = filepath.Join(target, cleanRel)
 	}
 	var cmd *exec.Cmd
 	if relPath != "" {
@@ -481,9 +490,12 @@ func OpenInEditor(loc RepoLocation, relPath string) error {
 		if err := cmd.Start(); err == nil {
 			return nil
 		}
-		winTarget := loc.Path
+		winTarget := `\\wsl.localhost\` + loc.Distro
+		if loc.LinuxPath != "" && loc.LinuxPath != "/" {
+			winTarget += strings.ReplaceAll(loc.LinuxPath, "/", `\`)
+		}
 		if relPath != "" {
-			winTarget = filepath.Join(loc.Path, strings.ReplaceAll(relPath, "/", `\`))
+			winTarget = filepath.Join(winTarget, strings.ReplaceAll(relPath, "/", `\`))
 		}
 		return exec.Command("cmd.exe", "/c", "start", "", winTarget).Start()
 	}

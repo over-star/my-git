@@ -216,8 +216,10 @@ func ListSSHKeys(ctx context.Context, distro string) []SSHKeyInfo {
   b=$(basename "$f")
   case "$b" in *.pub|known_hosts*|config|authorized_keys) continue ;; esac
   printf '%s\t%s\n' "$b" "$f"
-done`
-		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", strings.TrimSpace(distro), "--", "sh", "-c", script)
+done
+`
+		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", strings.TrimSpace(distro), "--", "sh", "-s")
+		cmd.Stdin = strings.NewReader(script)
 		hideWindow(cmd)
 		if out, err := cmd.Output(); err == nil {
 			for _, line := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {

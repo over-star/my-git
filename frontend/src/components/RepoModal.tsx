@@ -13,6 +13,8 @@ import {
   Folder,
   AlertCircle,
   GitBranch,
+  HardDrive,
+  Home,
 } from "lucide-react";
 import { Events } from "@wailsio/runtime";
 import type {
@@ -42,6 +44,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
   const [tab, setTab] = useState<TabMode>("open");
   const [recents, setRecents] = useState<RecentRepo[]>([]);
   const [pathInput, setPathInput] = useState("");
+  const [openEnv, setOpenEnv] = useState<"windows" | "wsl">("windows");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [notGitTarget, setNotGitTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,12 +52,16 @@ export const RepoModal: React.FC<RepoModalProps> = ({
   // WSL2 browser state
   const [distros, setDistros] = useState<WSLDistro[]>([]);
   const [selectedDistro, setSelectedDistro] = useState("");
-  const [wslPath, setWslPath] = useState("");
+  const [wslPath, setWslPath] = useState("/");
   const [wslEntries, setWslEntries] = useState<WSLEntry[]>([]);
   const [wslLoading, setWslLoading] = useState(false);
+  const [wslPickFor, setWslPickFor] = useState<"open" | "clone" | "init" | null>(
+    null
+  );
 
   // Clone state
   const [cloneURL, setCloneURL] = useState("");
+  const [cloneEnv, setCloneEnv] = useState<"windows" | "wsl">("windows");
   const [cloneParent, setCloneParent] = useState("");
   const [cloneFolder, setCloneFolder] = useState("");
   const [cloneProgress, setCloneProgress] = useState<CloneProgressEvent | null>(
@@ -62,20 +69,24 @@ export const RepoModal: React.FC<RepoModalProps> = ({
   );
 
   // Init state
+  const [initEnv, setInitEnv] = useState<"windows" | "wsl">("windows");
   const [initPath, setInitPath] = useState("");
 
   useEffect(() => {
     if (!isOpen) return;
     setErrorMsg(null);
     setNotGitTarget(null);
+    setWslPickFor(null);
     GitService.GetRecentRepos().then((list) => setRecents(list ?? []));
     GitService.ListWSLDistros()
       .then((list) => {
         const d = list ?? [];
         setDistros(d);
-        if (d.length > 0 && !selectedDistro) {
-          setSelectedDistro(d[0].name);
-          setWslPath(d[0].defaultHome || "/");
+        if (d.length > 0) {
+          if (!selectedDistro) {
+            setSelectedDistro(d[0].name);
+          }
+          setWslPath("/");
         }
       })
       .catch(() => {});
@@ -83,7 +94,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || tab !== "wsl" || !selectedDistro) return;
-    loadWSLDir(selectedDistro, wslPath);
+    loadWSLDir(selectedDistro, wslPath || "/");
   }, [isOpen, tab, selectedDistro]);
 
   useEffect(() => {
@@ -100,12 +111,32 @@ export const RepoModal: React.FC<RepoModalProps> = ({
 
   if (!isOpen) return null;
 
+  const normalizeTarget = (
+    raw: string,
+    env: "windows" | "wsl",
+    distro: string
+  ) => {
+    const t = raw.trim();
+    if (!t) return "";
+    if (
+      t.toLowerCase().startsWith("wsl://") ||
+      t.startsWith("\\\\wsl")
+    ) {
+      return t;
+    }
+    if (t.startsWith("/") || (env === "wsl" && distro)) {
+      const linux = t.startsWith("/") ? t : "/" + t;
+      return `wsl://${distro || distros[0]?.name || "Ubuntu"}${linux}`;
+    }
+    return t;
+  };
+
   const loadWSLDir = async (distro: string, targetPath: string) => {
     setWslLoading(true);
     setErrorMsg(null);
     try {
-      const res = await GitService.BrowseWSLDir(distro, targetPath);
-      setWslPath(res.path);
+      const res = await GitService.BrowseWSLDir(distro, targetPath || "/");
+      setWslPath(res.path || "/");
       setWslEntries(res.entries ?? []);
     } catch (err) {
       setErrorMsg(String(err));
@@ -137,19 +168,50 @@ export const RepoModal: React.FC<RepoModalProps> = ({
 
   const handlePickLocalFolder = async (forField: "open" | "clone" | "init") => {
     try {
-      const picked = await GitService.PickFolder("Select Repository Folder");
+      const picked = await GitService.PickFolder("Select Windows Folder");
       if (!picked) return;
       if (forField === "open") {
+        setOpenEnv("windows");
         setPathInput(picked);
         await handleOpenPath(picked);
       } else if (forField === "clone") {
+        setCloneEnv("windows");
         setCloneParent(picked);
       } else {
+        setInitEnv("windows");
         setInitPath(picked);
       }
     } catch (err) {
       setErrorMsg(String(err));
     }
+  };
+
+  const openWSLBrowserFor = (target: "open" | "clone" | "init") => {
+    setWslPickFor(target);
+    setTab("wsl");
+    if (selectedDistro) {
+      loadWSLDir(selectedDistro, wslPath || "/");
+    }
+  };
+
+  const handleConfirmWSLSelection = (linuxDir: string) => {
+    const cleanDir = linuxDir.startsWith("/") ? linuxDir : "/" + linuxDir;
+    if (wslPickFor === "clone") {
+      setCloneEnv("wsl");
+      setCloneParent(cleanDir);
+      setWslPickFor(null);
+      setTab("clone");
+      return;
+    }
+    if (wslPickFor === "init") {
+      setInitEnv("wsl");
+      setInitPath(cleanDir);
+      setWslPickFor(null);
+      setTab("init");
+      return;
+    }
+    setWslPickFor(null);
+    handleOpenPath(`wsl://${selectedDistro}${cleanDir}`);
   };
 
   const handleInit = async (target: string) => {
@@ -167,7 +229,8 @@ export const RepoModal: React.FC<RepoModalProps> = ({
   };
 
   const handleClone = async () => {
-    if (!cloneURL.trim() || !cloneParent.trim()) return;
+    const resolvedParent = normalizeTarget(cloneParent, cloneEnv, selectedDistro);
+    if (!cloneURL.trim() || !resolvedParent) return;
     setBusy(true);
     setErrorMsg(null);
     setCloneProgress({
@@ -182,7 +245,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
       const loc = await GitService.CloneRepo(
         "clone",
         cloneURL.trim(),
-        cloneParent.trim(),
+        resolvedParent,
         cloneFolder.trim()
       );
       onOpened(loc);
@@ -212,6 +275,9 @@ export const RepoModal: React.FC<RepoModalProps> = ({
     return "/" + parts.join("/");
   };
 
+  const currentDistroObj = distros.find((d) => d.name === selectedDistro);
+  const pathSegments = wslPath.split("/").filter(Boolean);
+
   return (
     <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
       <div className="w-full max-w-2xl bg-white border border-[#cbd5e1] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
@@ -226,7 +292,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                 GitPulse Repository Manager
               </h2>
               <p className="text-[11px] text-[#64748b]">
-                Open local Windows folders or native WSL2 Linux repositories
+                Open local Windows folders or native WSL2 Linux repositories (/...)
               </p>
             </div>
           </div>
@@ -244,7 +310,11 @@ export const RepoModal: React.FC<RepoModalProps> = ({
         <div className="px-4 pt-2 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center gap-1">
           {[
             { id: "open", label: "Open & Recent", icon: FolderOpen },
-            { id: "wsl", label: `WSL2 Browser (${distros.length})`, icon: TerminalSquare },
+            {
+              id: "wsl",
+              label: `WSL2 Browser (${distros.length})`,
+              icon: TerminalSquare,
+            },
             { id: "clone", label: "Clone Remote", icon: Download },
             { id: "init", label: "Init Repository", icon: FolderPlus },
           ].map((item) => {
@@ -255,6 +325,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                 key={item.id}
                 onClick={() => {
                   setTab(item.id as TabMode);
+                  setWslPickFor(null);
                   setErrorMsg(null);
                   setNotGitTarget(null);
                 }}
@@ -294,30 +365,90 @@ export const RepoModal: React.FC<RepoModalProps> = ({
         <div className="p-4 flex-1 overflow-y-auto flex flex-col gap-3">
           {tab === "open" && (
             <>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1 bg-[#f1f5f9] p-0.5 rounded-md">
+                  <button
+                    type="button"
+                    onClick={() => setOpenEnv("windows")}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium cursor-pointer ${
+                      openEnv === "windows"
+                        ? "bg-white text-[#0284c7] shadow-sm"
+                        : "text-[#64748b]"
+                    }`}
+                  >
+                    <HardDrive className="w-3 h-3" />
+                    Windows
+                  </button>
+                  <button
+                    type="button"
+                    disabled={distros.length === 0}
+                    onClick={() => setOpenEnv("wsl")}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium disabled:opacity-40 cursor-pointer ${
+                      openEnv === "wsl"
+                        ? "bg-white text-[#7c3aed] shadow-sm"
+                        : "text-[#64748b]"
+                    }`}
+                  >
+                    <TerminalSquare className="w-3 h-3" />
+                    WSL2
+                  </button>
+                </div>
+
+                {openEnv === "wsl" && distros.length > 0 && (
+                  <select
+                    value={selectedDistro}
+                    onChange={(e) => setSelectedDistro(e.target.value)}
+                    className="px-2 py-1 rounded bg-white border border-[#cbd5e1] text-[11px] font-medium outline-none"
+                  >
+                    {distros.map((d) => (
+                      <option key={d.name} value={d.name}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={pathInput}
                   onChange={(e) => setPathInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") handleOpenPath(pathInput);
+                    if (e.key === "Enter") {
+                      handleOpenPath(
+                        normalizeTarget(pathInput, openEnv, selectedDistro)
+                      );
+                    }
                   }}
-                  placeholder="Enter path: D:\code\repo or \\wsl.localhost\Ubuntu-24.04\home\user\repo"
+                  placeholder={
+                    openEnv === "wsl"
+                      ? "/home/user/project (starts with / inside WSL2)"
+                      : "D:\\code\\repo (or /home/user/project for WSL2)"
+                  }
                   className="flex-1 px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs font-mono outline-none"
                 />
                 <button
-                  onClick={() => handleOpenPath(pathInput)}
+                  onClick={() =>
+                    handleOpenPath(
+                      normalizeTarget(pathInput, openEnv, selectedDistro)
+                    )
+                  }
                   disabled={busy || !pathInput.trim()}
                   className="px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-medium disabled:opacity-40 cursor-pointer"
                 >
                   Open
                 </button>
                 <button
-                  onClick={() => handlePickLocalFolder("open")}
+                  onClick={() =>
+                    openEnv === "wsl"
+                      ? openWSLBrowserFor("open")
+                      : handlePickLocalFolder("open")
+                  }
                   className="flex items-center gap-1 px-3 py-1.5 rounded bg-white border border-[#cbd5e1] hover:bg-[#f8fafc] text-xs font-medium text-[#0b1c30] cursor-pointer"
                 >
                   <FolderOpen className="w-3.5 h-3.5 text-[#0284c7]" />
-                  Browse...
+                  {openEnv === "wsl" ? "Browse WSL2..." : "Browse..."}
                 </button>
               </div>
 
@@ -327,7 +458,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                 </div>
                 {recents.length === 0 ? (
                   <div className="py-8 text-center text-xs text-[#94a3b8] border border-dashed border-[#cbd5e1] rounded-lg">
-                    No recent repositories yet. Browse a folder or switch to WSL2 Browser.
+                    No recent repositories yet. Browse Windows or WSL2 folders above.
                   </div>
                 ) : (
                   <div className="flex flex-col divide-y divide-[#f1f5f9] border border-[#e2e8f0] rounded-lg overflow-hidden">
@@ -399,9 +530,8 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                     <select
                       value={selectedDistro}
                       onChange={(e) => {
-                        const d = distros.find((x) => x.name === e.target.value);
                         setSelectedDistro(e.target.value);
-                        setWslPath(d?.defaultHome || "/");
+                        loadWSLDir(e.target.value, "/");
                       }}
                       className="px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] text-xs font-medium outline-none"
                     >
@@ -418,6 +548,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                       onKeyDown={(e) => {
                         if (e.key === "Enter") loadWSLDir(selectedDistro, wslPath);
                       }}
+                      placeholder="/home/user/project"
                       className="flex-1 px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] text-xs font-mono outline-none"
                     />
                     <button
@@ -426,6 +557,27 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                     >
                       Go
                     </button>
+                    <button
+                      onClick={() => loadWSLDir(selectedDistro, "/")}
+                      title="Go to Root (/)"
+                      className="px-2 py-1.5 rounded bg-white border border-[#cbd5e1] hover:bg-[#f8fafc] text-xs font-mono cursor-pointer"
+                    >
+                      /
+                    </button>
+                    {currentDistroObj?.defaultHome && (
+                      <button
+                        onClick={() =>
+                          loadWSLDir(
+                            selectedDistro,
+                            currentDistroObj.defaultHome
+                          )
+                        }
+                        title={`Go to Home (${currentDistroObj.defaultHome})`}
+                        className="p-1.5 rounded bg-white border border-[#cbd5e1] hover:bg-[#f8fafc] cursor-pointer"
+                      >
+                        <Home className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       onClick={() =>
                         loadWSLDir(selectedDistro, parentLinuxPath(wslPath))
@@ -437,32 +589,61 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                     </button>
                   </div>
 
+                  {/* Breadcrumbs */}
+                  <div className="flex items-center gap-1 flex-wrap text-[11px] font-mono bg-[#f8fafc] border border-[#e2e8f0] rounded px-2.5 py-1">
+                    <button
+                      onClick={() => loadWSLDir(selectedDistro, "/")}
+                      className="text-[#0284c7] font-semibold hover:underline cursor-pointer"
+                    >
+                      /
+                    </button>
+                    {pathSegments.map((seg, i) => {
+                      const target = "/" + pathSegments.slice(0, i + 1).join("/");
+                      return (
+                        <React.Fragment key={target}>
+                          {i > 0 && <span className="text-[#94a3b8]">/</span>}
+                          <button
+                            onClick={() => loadWSLDir(selectedDistro, target)}
+                            className="text-[#334155] hover:text-[#0284c7] hover:underline cursor-pointer"
+                          >
+                            {seg}
+                          </button>
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+
                   <div className="flex items-center justify-between text-[11px] text-[#64748b]">
                     <span>
-                      Click a <strong className="text-[#16a34a]">GIT</strong> folder to open, or double-click any folder to browse inside.
+                      {wslPickFor === "clone"
+                        ? "Navigate to target directory and click Select Folder for Clone."
+                        : wslPickFor === "init"
+                        ? "Navigate to target directory and click Select Folder for Init."
+                        : "Click a GIT REPO folder to open, or browse into any folder."}
                     </span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {!wslPickFor && (
+                        <button
+                          onClick={() => {
+                            setCloneEnv("wsl");
+                            setCloneParent(wslPath);
+                            setTab("clone");
+                          }}
+                          className="px-2 py-1 rounded bg-white border border-[#cbd5e1] hover:border-[#0284c7] text-[#0284c7] cursor-pointer"
+                        >
+                          Clone Here
+                        </button>
+                      )}
                       <button
-                        onClick={() => {
-                          setCloneParent(`wsl://${selectedDistro}${wslPath}`);
-                          setTab("clone");
-                        }}
-                        className="px-2 py-0.5 rounded bg-white border border-[#cbd5e1] hover:border-[#0284c7] text-[#0284c7] cursor-pointer"
+                        onClick={() => handleConfirmWSLSelection(wslPath)}
+                        className="px-2.5 py-1 rounded bg-[#0284c7] text-white hover:bg-[#0369a1] font-medium cursor-pointer"
                       >
-                        Clone into this dir
-                      </button>
-                      <button
-                        onClick={() =>
-                          handleOpenPath(`wsl://${selectedDistro}${wslPath}`)
-                        }
-                        className="px-2 py-0.5 rounded bg-[#0284c7] text-white hover:bg-[#0369a1] cursor-pointer"
-                      >
-                        Open Current Folder
+                        {wslPickFor ? "Select This Folder" : "Open This Folder"}
                       </button>
                     </div>
                   </div>
 
-                  <div className="border border-[#e2e8f0] rounded-lg max-h-64 overflow-y-auto divide-y divide-[#f1f5f9]">
+                  <div className="border border-[#e2e8f0] rounded-lg max-h-60 overflow-y-auto divide-y divide-[#f1f5f9]">
                     {wslLoading ? (
                       <div className="py-8 text-center text-xs text-[#64748b]">
                         Reading WSL2 filesystem...
@@ -476,8 +657,10 @@ export const RepoModal: React.FC<RepoModalProps> = ({
                         <div
                           key={entry.path}
                           onClick={() => {
-                            if (entry.isGit) {
-                              handleOpenPath(`wsl://${selectedDistro}${entry.path}`);
+                            if (entry.isGit && !wslPickFor) {
+                              handleOpenPath(
+                                `wsl://${selectedDistro}${entry.path}`
+                              );
                             } else {
                               loadWSLDir(selectedDistro, entry.path);
                             }
@@ -514,6 +697,49 @@ export const RepoModal: React.FC<RepoModalProps> = ({
 
           {tab === "clone" && (
             <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1 bg-[#f1f5f9] p-0.5 rounded-md">
+                  <button
+                    type="button"
+                    onClick={() => setCloneEnv("windows")}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium cursor-pointer ${
+                      cloneEnv === "windows"
+                        ? "bg-white text-[#0284c7] shadow-sm"
+                        : "text-[#64748b]"
+                    }`}
+                  >
+                    <HardDrive className="w-3 h-3" />
+                    Windows Local
+                  </button>
+                  <button
+                    type="button"
+                    disabled={distros.length === 0}
+                    onClick={() => setCloneEnv("wsl")}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium disabled:opacity-40 cursor-pointer ${
+                      cloneEnv === "wsl"
+                        ? "bg-white text-[#7c3aed] shadow-sm"
+                        : "text-[#64748b]"
+                    }`}
+                  >
+                    <TerminalSquare className="w-3 h-3" />
+                    WSL2
+                  </button>
+                </div>
+                {cloneEnv === "wsl" && distros.length > 0 && (
+                  <select
+                    value={selectedDistro}
+                    onChange={(e) => setSelectedDistro(e.target.value)}
+                    className="px-2 py-1 rounded bg-white border border-[#cbd5e1] text-[11px] font-medium outline-none"
+                  >
+                    {distros.map((d) => (
+                      <option key={d.name} value={d.name}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
               <div>
                 <label className="block text-[11px] font-semibold text-[#475569] mb-1">
                   Repository URL (HTTPS or SSH)
@@ -529,21 +755,33 @@ export const RepoModal: React.FC<RepoModalProps> = ({
 
               <div>
                 <label className="block text-[11px] font-semibold text-[#475569] mb-1">
-                  Target Parent Directory (Local Windows or wsl://Distro/path)
+                  Target Parent Directory (
+                  {cloneEnv === "wsl"
+                    ? `WSL2 ${selectedDistro}: /...`
+                    : "Windows Path"}
+                  )
                 </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={cloneParent}
                     onChange={(e) => setCloneParent(e.target.value)}
-                    placeholder="D:\code or wsl://Ubuntu-24.04/home/user/code"
+                    placeholder={
+                      cloneEnv === "wsl"
+                        ? "/home/user/code"
+                        : "D:\\code"
+                    }
                     className="flex-1 px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs font-mono outline-none"
                   />
                   <button
-                    onClick={() => handlePickLocalFolder("clone")}
+                    onClick={() =>
+                      cloneEnv === "wsl"
+                        ? openWSLBrowserFor("clone")
+                        : handlePickLocalFolder("clone")
+                    }
                     className="px-3 py-1.5 rounded bg-white border border-[#cbd5e1] hover:bg-[#f8fafc] text-xs font-medium cursor-pointer"
                   >
-                    Browse...
+                    {cloneEnv === "wsl" ? "Browse WSL2..." : "Browse..."}
                   </button>
                 </div>
               </div>
@@ -598,29 +836,88 @@ export const RepoModal: React.FC<RepoModalProps> = ({
 
           {tab === "init" && (
             <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1 bg-[#f1f5f9] p-0.5 rounded-md">
+                  <button
+                    type="button"
+                    onClick={() => setInitEnv("windows")}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium cursor-pointer ${
+                      initEnv === "windows"
+                        ? "bg-white text-[#0284c7] shadow-sm"
+                        : "text-[#64748b]"
+                    }`}
+                  >
+                    <HardDrive className="w-3 h-3" />
+                    Windows Local
+                  </button>
+                  <button
+                    type="button"
+                    disabled={distros.length === 0}
+                    onClick={() => setInitEnv("wsl")}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium disabled:opacity-40 cursor-pointer ${
+                      initEnv === "wsl"
+                        ? "bg-white text-[#7c3aed] shadow-sm"
+                        : "text-[#64748b]"
+                    }`}
+                  >
+                    <TerminalSquare className="w-3 h-3" />
+                    WSL2
+                  </button>
+                </div>
+                {initEnv === "wsl" && distros.length > 0 && (
+                  <select
+                    value={selectedDistro}
+                    onChange={(e) => setSelectedDistro(e.target.value)}
+                    className="px-2 py-1 rounded bg-white border border-[#cbd5e1] text-[11px] font-medium outline-none"
+                  >
+                    {distros.map((d) => (
+                      <option key={d.name} value={d.name}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
               <div>
                 <label className="block text-[11px] font-semibold text-[#475569] mb-1">
-                  Directory to Initialize (Local Windows or wsl://Distro/path)
+                  Directory to Initialize (
+                  {initEnv === "wsl"
+                    ? `WSL2 ${selectedDistro}: /...`
+                    : "Windows Path"}
+                  )
                 </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={initPath}
                     onChange={(e) => setInitPath(e.target.value)}
-                    placeholder="D:\code\new-project or wsl://Ubuntu-24.04/home/user/new-project"
+                    placeholder={
+                      initEnv === "wsl"
+                        ? "/home/user/new-project"
+                        : "D:\\code\\new-project"
+                    }
                     className="flex-1 px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs font-mono outline-none"
                   />
                   <button
-                    onClick={() => handlePickLocalFolder("init")}
+                    onClick={() =>
+                      initEnv === "wsl"
+                        ? openWSLBrowserFor("init")
+                        : handlePickLocalFolder("init")
+                    }
                     className="px-3 py-1.5 rounded bg-white border border-[#cbd5e1] hover:bg-[#f8fafc] text-xs font-medium cursor-pointer"
                   >
-                    Browse...
+                    {initEnv === "wsl" ? "Browse WSL2..." : "Browse..."}
                   </button>
                 </div>
               </div>
               <div className="flex justify-end">
                 <button
-                  onClick={() => handleInit(initPath)}
+                  onClick={() =>
+                    handleInit(
+                      normalizeTarget(initPath, initEnv, selectedDistro)
+                    )
+                  }
                   disabled={busy || !initPath.trim()}
                   className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-medium disabled:opacity-45 cursor-pointer"
                 >
