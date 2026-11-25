@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type {
   BranchInfo,
+  CommitItem,
   FileStatus,
   RepoLocation,
   RepoStatus,
@@ -44,6 +45,8 @@ import {
   DeleteRemoteBranchModal,
   DiscardConfirmModal,
   RenameBranchModal,
+  ResetCommitModal,
+  RevertCommitModal,
   StashModal,
 } from "./components/Dialogs";
 
@@ -99,6 +102,8 @@ export function App() {
     open: false,
     target: "",
   });
+  const [revertTarget, setRevertTarget] = useState<CommitItem | null>(null);
+  const [resetTarget, setResetTarget] = useState<CommitItem | null>(null);
   const [gitConfigModal, setGitConfigModal] = useState<{
     open: boolean;
     scope: "local" | "global";
@@ -507,6 +512,45 @@ export function App() {
     }
   };
 
+  const handleRevertCommit = async (commit: CommitItem) => {
+    if (!activeRepo) return;
+    setRevertTarget(null);
+    try {
+      const isMerge = (commit.parents?.length ?? 0) > 1;
+      const res = await GitService.RevertCommit(activeRepo.path, commit.hash, isMerge);
+      if (res.success) {
+        notify("success", res.message);
+      } else if (res.errorCode === "CONFLICT") {
+        notify("error", "Revert caused conflicts. Resolve them in Conflict Resolver.");
+        setView("conflicts");
+      } else {
+        notify("error", res.message || "Revert failed");
+      }
+      await refreshRepo(activeRepo.path);
+    } catch (err) {
+      notify("error", String(err));
+    }
+  };
+
+  const handleResetCommit = async (
+    commit: CommitItem,
+    mode: "soft" | "mixed" | "hard"
+  ) => {
+    if (!activeRepo) return;
+    setResetTarget(null);
+    try {
+      const res = await GitService.ResetToCommit(activeRepo.path, commit.hash, mode);
+      if (res.success) {
+        notify("success", res.message);
+      } else {
+        notify("error", res.message || "Reset failed");
+      }
+      await refreshRepo(activeRepo.path);
+    } catch (err) {
+      notify("error", String(err));
+    }
+  };
+
   const changedCount = (status?.unstaged?.length ?? 0) + (status?.staged?.length ?? 0);
   const conflictCount = status?.conflicted?.length ?? 0;
 
@@ -895,9 +939,14 @@ export function App() {
                     setBranchModal({
                       open: true,
                       startPoint: sha,
-                      defaultCheckout: true,
+                      defaultCheckout: false,
                     })
                   }
+                  onCreateTagFromCommit={(sha) =>
+                    setTagModal({ open: true, target: sha })
+                  }
+                  onRequestRevertCommit={(c) => setRevertTarget(c)}
+                  onRequestResetCommit={(c) => setResetTarget(c)}
                   onNotify={notify}
                 />
               )}
@@ -1039,6 +1088,19 @@ export function App() {
         target={tagModal.target}
         onCancel={() => setTagModal({ open: false, target: "" })}
         onConfirm={handleCreateTag}
+      />
+
+      <RevertCommitModal
+        commit={revertTarget}
+        onCancel={() => setRevertTarget(null)}
+        onConfirm={handleRevertCommit}
+      />
+
+      <ResetCommitModal
+        commit={resetTarget}
+        currentBranch={status?.branch || "HEAD"}
+        onCancel={() => setResetTarget(null)}
+        onConfirm={handleResetCommit}
       />
 
       <GitConfigModal

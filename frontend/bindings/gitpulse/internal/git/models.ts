@@ -58,6 +58,18 @@ export interface CommitFileChange {
 }
 
 /**
+ * CommitFileContent holds the raw text (or binary metadata) of a file at a commit.
+ */
+export interface CommitFileContent {
+    "path": string;
+    "size": number;
+    "isBinary": boolean;
+    "truncated": boolean;
+    "content": string;
+    "rawError": string;
+}
+
+/**
  * CommitItem represents a row in the commit history list.
  */
 export interface CommitItem {
@@ -80,6 +92,14 @@ export interface CommitItem {
 export interface CommitPage {
     "commits": CommitItem[] | null;
     "hasMore": boolean;
+}
+
+/**
+ * CommitTreeEntry represents a file in the repository snapshot at a commit.
+ */
+export interface CommitTreeEntry {
+    "path": string;
+    "size": number;
 }
 
 /**

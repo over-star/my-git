@@ -155,6 +155,32 @@ func TestGitEndToEndLocalRepo(t *testing.T) {
 	if cfgBundle.Local.UserName != "Updated Name" || cfgBundle.Local.UserEmail != "updated@example.com" || cfgBundle.Local.PullRebase != "true" {
 		t.Fatalf("unexpected local config: %+v", cfgBundle.Local)
 	}
+
+	// Second commit -> test RevertCommit and ResetToCommit
+	_ = os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("hello\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "feat: add extra", "", false)
+
+	h2, _ := GetCommitHistory(ctx, loc, "", "", 0, 10)
+	if len(h2.Commits) < 2 {
+		t.Fatalf("expected 2 commits, got %d", len(h2.Commits))
+	}
+	rvRes, err := RevertCommit(ctx, loc, h2.Commits[0].Hash, false)
+	if err != nil || !rvRes.Success {
+		t.Fatalf("RevertCommit failed: %+v %v", rvRes, err)
+	}
+	tree, err := GetCommitTree(ctx, loc, h2.Commits[0].Hash)
+	if err != nil || len(tree) != 2 {
+		t.Fatalf("GetCommitTree failed: %+v %v", tree, err)
+	}
+	fc, err := GetCommitFileContent(ctx, loc, h2.Commits[0].Hash, "extra.txt")
+	if err != nil || fc.Content != "hello\n" {
+		t.Fatalf("GetCommitFileContent failed: %+v %v", fc, err)
+	}
+	rsRes, err := ResetToCommit(ctx, loc, h2.Commits[1].Hash, "hard")
+	if err != nil || !rsRes.Success {
+		t.Fatalf("ResetToCommit failed: %+v %v", rsRes, err)
+	}
 }
 
 func TestGitMergeConflictAndAbort(t *testing.T) {

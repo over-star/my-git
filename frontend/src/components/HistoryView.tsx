@@ -8,20 +8,31 @@ import {
   AlignJustify,
   RefreshCw,
   ChevronDown,
+  ChevronRight,
   Tag as TagIcon,
   ExternalLink,
+  RotateCcw,
+  History,
+  FolderTree,
+  List,
+  Folder,
+  FileCode2,
+  FileArchive,
 } from "lucide-react";
 import type {
   BranchInfo,
   CommitDetail,
+  CommitFileChange,
+  CommitFileContent,
   CommitItem,
+  CommitTreeEntry,
   FileDiff,
   RepoLocation,
 } from "../../bindings/gitpulse/internal/git/models";
 import { GitService } from "../../bindings/gitpulse";
 import { computeCommitGraph } from "../utils/dag";
 import { DiffViewer } from "./DiffViewer";
-import { StatusBadge } from "./StatusBadge";
+import { StatusBadge, formatBytes } from "./StatusBadge";
 
 interface HistoryViewProps {
   repo: RepoLocation;
@@ -31,7 +42,63 @@ interface HistoryViewProps {
   refreshKey: number;
   externalSearch?: string;
   onCreateBranchFromCommit: (sha: string) => void;
+  onCreateTagFromCommit: (sha: string) => void;
+  onRequestRevertCommit: (commit: CommitItem) => void;
+  onRequestResetCommit: (commit: CommitItem) => void;
   onNotify: (type: "success" | "error" | "info", msg: string) => void;
+}
+
+interface TreeNode<T> {
+  name: string;
+  path: string;
+  children: TreeNode<T>[];
+  file?: T;
+  fileCount: number;
+}
+
+function buildFileTree<T extends { path: string }>(items: T[]): TreeNode<T>[] {
+  const root: TreeNode<T> = { name: "", path: "", children: [], fileCount: 0 };
+
+  for (const item of items) {
+    const parts = item.path.split("/").filter(Boolean);
+    let cur = root;
+    cur.fileCount++;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isLast = i === parts.length - 1;
+      const nodePath = parts.slice(0, i + 1).join("/");
+      let next = cur.children.find(
+        (c) => c.name === part && (isLast ? !!c.file : !c.file)
+      );
+      if (!next) {
+        next = {
+          name: part,
+          path: nodePath,
+          children: [],
+          file: isLast ? item : undefined,
+          fileCount: isLast ? 1 : 0,
+        };
+        cur.children.push(next);
+      } else if (!isLast) {
+        next.fileCount++;
+      }
+      cur = next;
+    }
+  }
+
+  const sortNodes = (nodes: TreeNode<T>[]) => {
+    nodes.sort((a, b) => {
+      const aDir = !a.file;
+      const bDir = !b.file;
+      if (aDir !== bDir) return aDir ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const n of nodes) {
+      if (n.children.length > 0) sortNodes(n.children);
+    }
+  };
+  sortNodes(root.children);
+  return root.children;
 }
 
 const PAGE_SIZE = 100;
@@ -46,6 +113,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   refreshKey,
   externalSearch,
   onCreateBranchFromCommit,
+  onCreateTagFromCommit,
+  onRequestRevertCommit,
+  onRequestResetCommit,
   onNotify,
 }) => {
   const [searchInput, setSearchInput] = useState("");
@@ -65,10 +135,41 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
   const [ignoreWs, setIgnoreWs] = useState(false);
 
+  // Changed vs All Files at commit + Tree vs Flat List
+  const [fileScope, setFileScope] = useState<"changed" | "all">("changed");
+  const [fileViewMode, setFileViewMode] = useState<"tree" | "list">("tree");
+  const [fileFilter, setFileFilter] = useState("");
+  const [treeEntries, setTreeEntries] = useState<CommitTreeEntry[]>([]);
+  const [treeLoading, setTreeLoading] = useState(false);
+  const [collapsedDirs, setCollapsedDirs] = useState<Record<string, boolean>>({});
+  const [snapshotContent, setSnapshotContent] = useState<CommitFileContent | null>(
+    null
+  );
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+
   // Virtual scroll state for commit list
   const listRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(400);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    commit: CommitItem;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [ctxMenu]);
 
   useEffect(() => {
     if (externalSearch !== undefined && externalSearch !== searchInput) {
@@ -137,68 +238,110 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     }
   };
 
-  // Load commit detail when selectedHash changes
+  // Load commit detail + full file tree when selectedHash changes
   useEffect(() => {
     if (!selectedHash) {
       setDetail(null);
+      setTreeEntries([]);
       setSelectedFile(null);
       setFileDiff(null);
+      setSnapshotContent(null);
       return;
     }
     let cancelled = false;
     setDetailLoading(true);
-    GitService.GetCommitDetail(repo.path, selectedHash)
-      .then((d) => {
+    setTreeLoading(true);
+    setCollapsedDirs({});
+
+    Promise.all([
+      GitService.GetCommitDetail(repo.path, selectedHash),
+      GitService.GetCommitTree(repo.path, selectedHash).catch(
+        () => [] as CommitTreeEntry[]
+      ),
+    ])
+      .then(([d, tree]) => {
         if (cancelled) return;
         setDetail(d);
-        const files = d.files ?? [];
-        setSelectedFile(files.length > 0 ? files[0].path : null);
+        const tList = tree ?? [];
+        setTreeEntries(tList);
+        const changed = d.files ?? [];
+        if (fileScope === "changed") {
+          setSelectedFile(changed.length > 0 ? changed[0].path : null);
+        } else {
+          setSelectedFile(tList.length > 0 ? tList[0].path : null);
+        }
       })
       .catch((err) => {
         if (!cancelled) onNotify("error", `Failed to load commit: ${err}`);
       })
       .finally(() => {
-        if (!cancelled) setDetailLoading(false);
+        if (!cancelled) {
+          setDetailLoading(false);
+          setTreeLoading(false);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [repo.path, selectedHash]);
 
-  // Load commit file diff
+  // Load commit file diff OR snapshot content
   useEffect(() => {
     if (!selectedHash || !selectedFile) {
       setFileDiff(null);
+      setSnapshotContent(null);
       return;
     }
     let cancelled = false;
-    setDiffLoading(true);
-    GitService.GetCommitFileDiff(repo.path, selectedHash, selectedFile, ignoreWs)
-      .then((fd) => {
-        if (!cancelled) setFileDiff(fd);
-      })
-      .catch((err) => {
-        if (!cancelled)
-          setFileDiff({
-            path: selectedFile,
-            oldPath: "",
-            isBinary: false,
-            oldSize: 0,
-            newSize: 0,
-            additions: 0,
-            deletions: 0,
-            hunks: [],
-            truncated: false,
-            rawError: String(err),
-          });
-      })
-      .finally(() => {
-        if (!cancelled) setDiffLoading(false);
-      });
+    if (fileScope === "changed") {
+      setDiffLoading(true);
+      GitService.GetCommitFileDiff(repo.path, selectedHash, selectedFile, ignoreWs)
+        .then((fd) => {
+          if (!cancelled) setFileDiff(fd);
+        })
+        .catch((err) => {
+          if (!cancelled)
+            setFileDiff({
+              path: selectedFile,
+              oldPath: "",
+              isBinary: false,
+              oldSize: 0,
+              newSize: 0,
+              additions: 0,
+              deletions: 0,
+              hunks: [],
+              truncated: false,
+              rawError: String(err),
+            });
+        })
+        .finally(() => {
+          if (!cancelled) setDiffLoading(false);
+        });
+    } else {
+      setSnapshotLoading(true);
+      GitService.GetCommitFileContent(repo.path, selectedHash, selectedFile)
+        .then((fc) => {
+          if (!cancelled) setSnapshotContent(fc);
+        })
+        .catch((err) => {
+          if (!cancelled)
+            setSnapshotContent({
+              path: selectedFile,
+              size: 0,
+              isBinary: false,
+              truncated: false,
+              content: "",
+              rawError: String(err),
+            });
+        })
+        .finally(() => {
+          if (!cancelled) setSnapshotLoading(false);
+        });
+    }
     return () => {
       cancelled = true;
     };
-  }, [repo.path, selectedHash, selectedFile, ignoreWs]);
+  }, [repo.path, selectedHash, selectedFile, ignoreWs, fileScope]);
 
   // Measure viewport for virtual window
   useEffect(() => {
@@ -245,6 +388,115 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
     return name.slice(0, 2).toUpperCase();
+  };
+
+  const filteredChangedFiles = useMemo(() => {
+    const list = detail?.files ?? [];
+    if (!fileFilter.trim()) return list;
+    const q = fileFilter.trim().toLowerCase();
+    return list.filter((f) => f.path.toLowerCase().includes(q));
+  }, [detail?.files, fileFilter]);
+
+  const filteredTreeEntries = useMemo(() => {
+    if (!fileFilter.trim()) return treeEntries;
+    const q = fileFilter.trim().toLowerCase();
+    return treeEntries.filter((f) => f.path.toLowerCase().includes(q));
+  }, [treeEntries, fileFilter]);
+
+  const changedTree = useMemo(
+    () => buildFileTree<CommitFileChange>(filteredChangedFiles),
+    [filteredChangedFiles]
+  );
+
+  const allTree = useMemo(
+    () => buildFileTree<CommitTreeEntry>(filteredTreeEntries),
+    [filteredTreeEntries]
+  );
+
+  const toggleDir = (dirPath: string) => {
+    setCollapsedDirs((prev) => ({ ...prev, [dirPath]: !prev[dirPath] }));
+  };
+
+  const renderTreeNodes = <T extends { path: string }>(
+    nodes: TreeNode<T>[],
+    depth: number,
+    renderLeafExtra: (item: T) => React.ReactNode
+  ): React.ReactNode => {
+    return nodes.map((node) => {
+      if (!node.file) {
+        const isCollapsed =
+          Boolean(collapsedDirs[node.path]) && !fileFilter.trim();
+        return (
+          <div key={`dir:${node.path}`}>
+            <div
+              onClick={() => toggleDir(node.path)}
+              style={{ paddingLeft: 6 + depth * 12 }}
+              className="flex items-center justify-between pr-2 py-1 rounded hover:bg-[#f8fafc] text-[#334155] cursor-pointer select-none"
+            >
+              <div className="flex items-center gap-1 min-w-0">
+                {isCollapsed ? (
+                  <ChevronRight className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
+                )}
+                <Folder className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
+                <span className="font-mono text-[11px] truncate">{node.name}</span>
+              </div>
+              <span className="font-mono text-[10px] text-[#94a3b8] shrink-0">
+                {node.fileCount}
+              </span>
+            </div>
+            {!isCollapsed &&
+              renderTreeNodes(node.children, depth + 1, renderLeafExtra)}
+          </div>
+        );
+      }
+
+      const item = node.file;
+      const active = item.path === selectedFile;
+      return (
+        <div
+          key={`file:${item.path}`}
+          onClick={() => setSelectedFile(item.path)}
+          style={{ paddingLeft: 20 + depth * 12 }}
+          title={item.path}
+          className={`flex items-center justify-between pr-2 py-1 rounded cursor-pointer transition-colors ${
+            active
+              ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
+              : "hover:bg-[#f8fafc] text-[#334155]"
+          }`}
+        >
+          <div className="flex items-center gap-1.5 min-w-0 pr-2">
+            {renderLeafExtra(item)}
+            <span className="font-mono text-[11px] truncate">{node.name}</span>
+          </div>
+          {fileScope === "changed" ? (
+            <span className="font-mono text-[10px] shrink-0">
+              {(item as unknown as CommitFileChange).isBinary ? (
+                <span className="text-[#64748b]">BIN</span>
+              ) : (
+                <>
+                  {(item as unknown as CommitFileChange).additions > 0 && (
+                    <span className="text-[#16a34a] mr-1">
+                      +{(item as unknown as CommitFileChange).additions}
+                    </span>
+                  )}
+                  {(item as unknown as CommitFileChange).deletions > 0 && (
+                    <span className="text-[#dc2626]">
+                      -{(item as unknown as CommitFileChange).deletions}
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+          ) : (
+            <span className="font-mono text-[10px] text-[#94a3b8] shrink-0">
+              {formatBytes((item as unknown as CommitTreeEntry).size)}
+            </span>
+          )}
+        </div>
+      );
+    });
   };
 
   return (
@@ -312,9 +564,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             Graph
           </div>
           <div className="flex-1 min-w-0 pl-2">Description & Refs</div>
-          <div className="w-40 shrink-0">Author</div>
-          <div className="w-32 shrink-0">Date</div>
-          <div className="w-20 shrink-0 text-right">Commit</div>
+          <div className="w-36 shrink-0">Author</div>
+          <div className="w-44 shrink-0">Date</div>
+          <div className="w-18 shrink-0 text-right">Commit</div>
         </div>
 
         {/* Virtualized Commit Rows */}
@@ -348,6 +600,18 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   <div
                     key={commit.hash}
                     onClick={() => setSelectedHash(commit.hash)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSelectedHash(commit.hash);
+                      const menuW = 220;
+                      const menuH = 220;
+                      setCtxMenu({
+                        x: Math.min(e.clientX, window.innerWidth - menuW - 8),
+                        y: Math.min(e.clientY, window.innerHeight - menuH - 8),
+                        commit,
+                      });
+                    }}
                     style={{
                       position: "absolute",
                       top: idx * ROW_HEIGHT,
@@ -412,7 +676,6 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                 />
                               );
                             }
-                            // outgoing edge
                             if (x1 === x2) {
                               return (
                                 <line
@@ -479,7 +742,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     </div>
 
                     {/* Author */}
-                    <div className="w-40 shrink-0 flex items-center gap-1.5 min-w-0 pr-2">
+                    <div className="w-36 shrink-0 flex items-center gap-1.5 min-w-0 pr-2">
                       <span className="w-4 h-4 rounded-full bg-[#e0f2fe] text-[#0369a1] text-[9px] font-bold flex items-center justify-center shrink-0">
                         {getInitials(commit.author || "?")}
                       </span>
@@ -488,16 +751,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       </span>
                     </div>
 
-                    {/* Relative Time */}
+                    {/* Full Date (YYYY-MM-DD HH:mm) + Relative Time */}
                     <div
-                      title={commit.dateFormatted}
-                      className="w-32 shrink-0 text-[11px] text-[#64748b] truncate"
+                      title={`${commit.dateFormatted} (${commit.relativeTime})`}
+                      className="w-44 shrink-0 flex items-center gap-1.5 font-mono text-[11px] text-[#475569] truncate pr-2"
                     >
-                      {commit.relativeTime}
+                      <span>{commit.dateFormatted}</span>
+                      <span className="text-[10px] text-[#94a3b8] font-sans truncate">
+                        {commit.relativeTime}
+                      </span>
                     </div>
 
                     {/* Short SHA */}
-                    <div className="w-20 shrink-0 text-right font-mono text-[11px] text-[#0284c7] font-medium">
+                    <div className="w-18 shrink-0 text-right font-mono text-[11px] text-[#0284c7] font-medium">
                       {commit.shortHash}
                     </div>
                   </div>
@@ -529,9 +795,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
       </div>
 
-      {/* BOTTOM HALF: Commit Metadata + Changed Files + Diff */}
+      {/* BOTTOM HALF: Commit Metadata + Changed/All Files + Diff/Snapshot */}
       <div className="h-[46%] min-h-[220px] flex gap-2 shrink-0">
-        {/* Left: Metadata & Changed Files */}
+        {/* Left: Metadata & Files */}
         <div className="w-[42%] min-w-[340px] flex flex-col bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
           {detailLoading ? (
             <div className="flex-1 flex items-center justify-center text-xs text-[#64748b]">
@@ -539,7 +805,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             </div>
           ) : detail ? (
             <>
-              <div className="p-3 border-b border-[#e2e8f0] bg-[#f8fafc] flex flex-col gap-1.5 shrink-0">
+              <div className="p-2.5 border-b border-[#e2e8f0] bg-[#f8fafc] flex flex-col gap-1.5 shrink-0">
                 <div className="flex items-start justify-between gap-2">
                   <div className="text-[13px] font-semibold text-[#0b1c30] leading-snug">
                     {detail.subject}
@@ -554,12 +820,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 </div>
 
                 {detail.body && (
-                  <pre className="text-[11px] font-mono text-[#475569] whitespace-pre-wrap bg-white border border-[#e2e8f0] rounded p-2 max-h-20 overflow-y-auto">
+                  <pre className="text-[11px] font-mono text-[#475569] whitespace-pre-wrap bg-white border border-[#e2e8f0] rounded p-2 max-h-16 overflow-y-auto">
                     {detail.body}
                   </pre>
                 )}
 
-                <div className="flex items-center justify-between gap-2 text-[11px] text-[#475569] pt-0.5">
+                <div className="flex items-center justify-between gap-2 text-[11px] text-[#475569]">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <GitCommitHorizontal className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
                     <span className="font-medium text-[#0b1c30] truncate">
@@ -569,8 +835,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       &lt;{detail.email}&gt;
                     </span>
                   </div>
-                  <span className="text-[#64748b] shrink-0" title={detail.dateFormatted}>
-                    {detail.relativeTime}
+                  <span className="text-[#64748b] font-mono text-[10px] shrink-0">
+                    {detail.dateFormatted}
                   </span>
                 </div>
 
@@ -599,51 +865,172 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 </div>
               </div>
 
-              {/* Changed files header */}
-              <div className="h-7 px-3 bg-[#f1f5f9] border-b border-[#e2e8f0] flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#64748b] shrink-0">
-                <span>Changed Files ({(detail.files ?? []).length})</span>
+              {/* Changed Files vs All Files Header */}
+              <div className="px-2 py-1.5 bg-[#f1f5f9] border-b border-[#e2e8f0] flex flex-col gap-1.5 shrink-0">
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setFileScope("changed");
+                        const files = detail.files ?? [];
+                        setSelectedFile(files.length > 0 ? files[0].path : null);
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-colors ${
+                        fileScope === "changed"
+                          ? "bg-white text-[#0284c7] shadow-sm"
+                          : "text-[#64748b] hover:text-[#0b1c30]"
+                      }`}
+                    >
+                      Changed ({(detail.files ?? []).length})
+                    </button>
+                    <button
+                      onClick={() => {
+                        setFileScope("all");
+                        setSelectedFile(
+                          treeEntries.length > 0 ? treeEntries[0].path : null
+                        );
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-colors ${
+                        fileScope === "all"
+                          ? "bg-white text-[#0284c7] shadow-sm"
+                          : "text-[#64748b] hover:text-[#0b1c30]"
+                      }`}
+                    >
+                      All Files ({treeLoading ? "..." : treeEntries.length})
+                    </button>
+                  </div>
+
+                  <div className="flex items-center bg-white border border-[#e2e8f0] rounded p-0.5">
+                    <button
+                      title="File Tree View"
+                      onClick={() => setFileViewMode("tree")}
+                      className={`p-0.5 rounded cursor-pointer ${
+                        fileViewMode === "tree"
+                          ? "bg-[#f0f9ff] text-[#0284c7]"
+                          : "text-[#64748b]"
+                      }`}
+                    >
+                      <FolderTree className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      title="Flat List View"
+                      onClick={() => setFileViewMode("list")}
+                      className={`p-0.5 rounded cursor-pointer ${
+                        fileViewMode === "list"
+                          ? "bg-[#f0f9ff] text-[#0284c7]"
+                          : "text-[#64748b]"
+                      }`}
+                    >
+                      <List className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center bg-white border border-[#e2e8f0] focus-within:border-[#0284c7] rounded px-2 py-0.5">
+                  <Search className="w-3 h-3 text-[#94a3b8] mr-1.5 shrink-0" />
+                  <input
+                    type="text"
+                    value={fileFilter}
+                    onChange={(e) => setFileFilter(e.target.value)}
+                    placeholder={
+                      fileScope === "changed"
+                        ? "Filter changed files..."
+                        : "Filter all files at this commit..."
+                    }
+                    className="w-full bg-transparent text-[11px] outline-none placeholder:text-[#94a3b8]"
+                  />
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-1 flex flex-col gap-0.5">
-                {(detail.files ?? []).map((f) => {
-                  const active = f.path === selectedFile;
-                  return (
-                    <div
-                      key={f.path}
-                      onClick={() => setSelectedFile(f.path)}
-                      className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
-                        active
-                          ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
-                          : "hover:bg-[#f8fafc] text-[#334155]"
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                        <StatusBadge status={f.status} />
-                        <span className="font-mono text-[11px] truncate">
-                          {f.origPath ? `${f.origPath} → ${f.path}` : f.path}
+                {fileScope === "changed" ? (
+                  filteredChangedFiles.length === 0 ? (
+                    <div className="py-6 text-center text-[11px] text-[#94a3b8]">
+                      No matching changed files
+                    </div>
+                  ) : fileViewMode === "tree" ? (
+                    renderTreeNodes(changedTree, 0, (f) => (
+                      <StatusBadge status={f.status} />
+                    ))
+                  ) : (
+                    filteredChangedFiles.map((f) => {
+                      const active = f.path === selectedFile;
+                      return (
+                        <div
+                          key={f.path}
+                          onClick={() => setSelectedFile(f.path)}
+                          className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
+                            active
+                              ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
+                              : "hover:bg-[#f8fafc] text-[#334155]"
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                            <StatusBadge status={f.status} />
+                            <span className="font-mono text-[11px] truncate">
+                              {f.origPath ? `${f.origPath} → ${f.path}` : f.path}
+                            </span>
+                          </div>
+                          <span className="font-mono text-[10px] shrink-0">
+                            {f.isBinary ? (
+                              <span className="text-[#64748b]">BIN</span>
+                            ) : (
+                              <>
+                                {f.additions > 0 && (
+                                  <span className="text-[#16a34a] mr-1">
+                                    +{f.additions}
+                                  </span>
+                                )}
+                                {f.deletions > 0 && (
+                                  <span className="text-[#dc2626]">
+                                    -{f.deletions}
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )
+                ) : treeLoading ? (
+                  <div className="py-6 text-center text-[11px] text-[#64748b]">
+                    Loading file tree...
+                  </div>
+                ) : filteredTreeEntries.length === 0 ? (
+                  <div className="py-6 text-center text-[11px] text-[#94a3b8]">
+                    No files at this commit
+                  </div>
+                ) : fileViewMode === "tree" ? (
+                  renderTreeNodes(allTree, 0, () => (
+                    <FileCode2 className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
+                  ))
+                ) : (
+                  filteredTreeEntries.slice(0, 1000).map((f) => {
+                    const active = f.path === selectedFile;
+                    return (
+                      <div
+                        key={f.path}
+                        onClick={() => setSelectedFile(f.path)}
+                        className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
+                          active
+                            ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
+                            : "hover:bg-[#f8fafc] text-[#334155]"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                          <FileCode2 className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
+                          <span className="font-mono text-[11px] truncate">
+                            {f.path}
+                          </span>
+                        </div>
+                        <span className="font-mono text-[10px] text-[#94a3b8] shrink-0">
+                          {formatBytes(f.size)}
                         </span>
                       </div>
-                      <span className="font-mono text-[10px] shrink-0">
-                        {f.isBinary ? (
-                          <span className="text-[#64748b]">BIN</span>
-                        ) : (
-                          <>
-                            {f.additions > 0 && (
-                              <span className="text-[#16a34a] mr-1">
-                                +{f.additions}
-                              </span>
-                            )}
-                            {f.deletions > 0 && (
-                              <span className="text-[#dc2626]">
-                                -{f.deletions}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </>
           ) : (
@@ -653,12 +1040,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           )}
         </div>
 
-        {/* Right: Commit File Diff */}
+        {/* Right: Commit File Diff OR Snapshot File Viewer */}
         <div className="flex-1 flex flex-col min-w-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
           <div className="h-9 px-3 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between gap-2 shrink-0">
-            <span className="font-mono text-[11px] font-semibold text-[#0b1c30] truncate">
-              {selectedFile || "File Diff"}
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-mono text-[11px] font-semibold text-[#0b1c30] truncate">
+                {selectedFile ||
+                  (fileScope === "changed" ? "File Diff" : "File Snapshot")}
+              </span>
+              {fileScope === "all" && snapshotContent && (
+                <span className="px-1.5 py-0.5 rounded bg-[#f1f5f9] font-mono text-[10px] text-[#475569] shrink-0">
+                  {formatBytes(snapshotContent.size)}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 shrink-0">
               {selectedFile && (
                 <button
@@ -669,49 +1064,199 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   Open
                 </button>
               )}
-              <label className="flex items-center gap-1 text-[11px] text-[#475569] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={ignoreWs}
-                  onChange={(e) => setIgnoreWs(e.target.checked)}
-                  className="w-3 h-3 accent-[#0284c7]"
-                />
-                No WS
-              </label>
-              <div className="flex items-center bg-white border border-[#e2e8f0] rounded p-0.5">
-                <button
-                  onClick={() => setDiffMode("unified")}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] cursor-pointer ${
-                    diffMode === "unified"
-                      ? "bg-[#f0f9ff] text-[#0284c7] font-medium"
-                      : "text-[#64748b]"
-                  }`}
-                >
-                  <AlignJustify className="w-3 h-3" />
-                  Unified
-                </button>
-                <button
-                  onClick={() => setDiffMode("split")}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] cursor-pointer ${
-                    diffMode === "split"
-                      ? "bg-[#f0f9ff] text-[#0284c7] font-medium"
-                      : "text-[#64748b]"
-                  }`}
-                >
-                  <Columns2 className="w-3 h-3" />
-                  Split
-                </button>
-              </div>
+              {fileScope === "changed" ? (
+                <>
+                  <label className="flex items-center gap-1 text-[11px] text-[#475569] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={ignoreWs}
+                      onChange={(e) => setIgnoreWs(e.target.checked)}
+                      className="w-3 h-3 accent-[#0284c7]"
+                    />
+                    No WS
+                  </label>
+                  <div className="flex items-center bg-white border border-[#e2e8f0] rounded p-0.5">
+                    <button
+                      onClick={() => setDiffMode("unified")}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] cursor-pointer ${
+                        diffMode === "unified"
+                          ? "bg-[#f0f9ff] text-[#0284c7] font-medium"
+                          : "text-[#64748b]"
+                      }`}
+                    >
+                      <AlignJustify className="w-3 h-3" />
+                      Unified
+                    </button>
+                    <button
+                      onClick={() => setDiffMode("split")}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] cursor-pointer ${
+                        diffMode === "split"
+                          ? "bg-[#f0f9ff] text-[#0284c7] font-medium"
+                          : "text-[#64748b]"
+                      }`}
+                    >
+                      <Columns2 className="w-3 h-3" />
+                      Split
+                    </button>
+                  </div>
+                </>
+              ) : (
+                snapshotContent &&
+                !snapshotContent.isBinary &&
+                snapshotContent.content && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(snapshotContent.content);
+                      onNotify("info", `Copied ${snapshotContent.path}`);
+                    }}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-[#e2e8f0] text-[11px] text-[#334155] hover:border-[#cbd5e1] cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    Copy File
+                  </button>
+                )
+              )}
             </div>
           </div>
-          <DiffViewer
-            diff={fileDiff}
-            loading={diffLoading}
-            mode={diffMode}
-            emptyMessage="Select a changed file to inspect its commit diff"
-          />
+
+          {fileScope === "changed" ? (
+            <DiffViewer
+              diff={fileDiff}
+              loading={diffLoading}
+              mode={diffMode}
+              emptyMessage="Select a changed file to inspect its commit diff"
+            />
+          ) : snapshotLoading ? (
+            <div className="flex-1 flex items-center justify-center text-xs text-[#64748b]">
+              Loading file snapshot...
+            </div>
+          ) : !snapshotContent ? (
+            <div className="flex-1 flex items-center justify-center text-xs text-[#94a3b8]">
+              Select a file from the commit tree to inspect its contents
+            </div>
+          ) : snapshotContent.rawError ? (
+            <div className="flex-1 flex items-center justify-center text-xs text-[#dc2626] p-4">
+              {snapshotContent.rawError}
+            </div>
+          ) : snapshotContent.isBinary ? (
+            <div className="flex-1 flex items-center justify-center p-6">
+              <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-5 text-center">
+                <FileArchive className="w-8 h-8 text-[#0284c7] mx-auto mb-2" />
+                <div className="text-xs font-semibold text-[#0b1c30]">
+                  Binary File ({formatBytes(snapshotContent.size)})
+                </div>
+                <div className="font-mono text-[11px] text-[#64748b] mt-1">
+                  {snapshotContent.path}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-auto bg-white font-mono text-[12px] leading-[18px]">
+              {snapshotContent.truncated && (
+                <div className="px-3 py-1 bg-[#fffbeb] border-b border-[#fde68a] text-[11px] text-[#b45309]">
+                  Preview truncated to 512 KB (total size:{" "}
+                  {formatBytes(snapshotContent.size)}).
+                </div>
+              )}
+              <table className="w-full border-collapse">
+                <tbody>
+                  {snapshotContent.content.split("\n").map((line, i) => (
+                    <tr key={i} className="hover:bg-[#f8fafc]">
+                      <td className="w-12 px-2 text-right select-none text-[11px] text-[#94a3b8] bg-[#f8fafc] border-r border-[#e2e8f0]">
+                        {i + 1}
+                      </td>
+                      <td className="px-3 whitespace-pre select-text text-[#0b1c30]">
+                        {line}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* COMMIT CONTEXT MENU */}
+      {ctxMenu && (
+        <div
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-50 w-56 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[12px] text-[#0b1c30] select-none"
+        >
+          <div className="px-3 py-1 border-b border-[#f1f5f9] flex items-center justify-between text-[10px] font-mono text-[#64748b]">
+            <span className="text-[#0284c7] font-semibold">
+              {ctxMenu.commit.shortHash}
+            </span>
+            <span className="truncate ml-2">{ctxMenu.commit.dateFormatted}</span>
+          </div>
+
+          <button
+            onClick={() => {
+              const sha = ctxMenu.commit.hash;
+              setCtxMenu(null);
+              onCreateBranchFromCommit(sha);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <GitBranch className="w-3.5 h-3.5 text-[#0284c7]" />
+            <span>New Branch Here...</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const sha = ctxMenu.commit.hash;
+              setCtxMenu(null);
+              onCreateTagFromCommit(sha);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <TagIcon className="w-3.5 h-3.5 text-[#16a34a]" />
+            <span>New Tag Here...</span>
+          </button>
+
+          <div className="my-1 border-t border-[#f1f5f9]" />
+
+          <button
+            onClick={() => {
+              const c = ctxMenu.commit;
+              setCtxMenu(null);
+              onRequestRevertCommit(c);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-[#0284c7]" />
+            <span>Revert Commit...</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const c = ctxMenu.commit;
+              setCtxMenu(null);
+              onRequestResetCommit(c);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-[#d97706] hover:bg-[#fffbeb] cursor-pointer"
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Reset Branch to Here...</span>
+          </button>
+
+          <div className="my-1 border-t border-[#f1f5f9]" />
+
+          <button
+            onClick={() => {
+              const c = ctxMenu.commit;
+              setCtxMenu(null);
+              navigator.clipboard.writeText(c.hash);
+              onNotify("info", `Copied ${c.shortHash}`);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f8fafc] text-[#475569] cursor-pointer"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Copy Full SHA</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

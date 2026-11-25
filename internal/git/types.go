@@ -138,6 +138,22 @@ type CommitFileChange struct {
 	IsBinary  bool   `json:"isBinary"`
 }
 
+// CommitTreeEntry represents a file in the repository snapshot at a commit.
+type CommitTreeEntry struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+// CommitFileContent holds the raw text (or binary metadata) of a file at a commit.
+type CommitFileContent struct {
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	IsBinary  bool   `json:"isBinary"`
+	Truncated bool   `json:"truncated"`
+	Content   string `json:"content"`
+	RawError  string `json:"rawError"`
+}
+
 // CommitDetail holds full commit metadata and changed files.
 type CommitDetail struct {
 	Hash          string             `json:"hash"`

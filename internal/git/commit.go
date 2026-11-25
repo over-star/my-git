@@ -1,8 +1,11 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -414,19 +417,159 @@ func formatRelativeTime(now, t time.Time) string {
 }
 
 func formatCommitDate(now, t time.Time) string {
-	ny, nm, nd := now.Date()
-	ty, tm, td := t.Date()
-	if ny == ty && nm == tm && nd == td {
-		return "Today " + t.Format("15:04")
+	_ = now
+	return t.Format("2006-01-02 15:04")
+}
+
+// RevertCommit reverts a specific commit (--no-edit, and -m 1 for merge commits).
+func RevertCommit(ctx context.Context, loc RepoLocation, hash string, isMerge bool) (OpResult, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return OpResult{Success: false, Message: "Commit hash is required"}, nil
 	}
-	yest := now.AddDate(0, 0, -1)
-	if yest.Year() == ty && yest.Month() == tm && yest.Day() == td {
-		return "Yesterday " + t.Format("15:04")
+	args := []string{"revert", "--no-edit"}
+	if isMerge {
+		args = append(args, "-m", "1")
 	}
-	if ny == ty {
-		return t.Format("Jan 02 15:04")
+	args = append(args, hash)
+
+	stdout, stderr, err := RunGit(ctx, loc, args...)
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		low := strings.ToLower(combined)
+		code := ""
+		if strings.Contains(low, "conflict") || strings.Contains(low, "could not revert") {
+			code = "CONFLICT"
+		}
+		return OpResult{
+			Success:   false,
+			Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			ErrorCode: code,
+			Output:    combined,
+		}, nil
 	}
-	return t.Format("2006-01-02")
+	short := hash
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	return OpResult{Success: true, Message: "Reverted commit " + short, Output: combined}, nil
+}
+
+// ResetToCommit resets the current branch HEAD to the specified commit with mode soft, mixed, or hard.
+func ResetToCommit(ctx context.Context, loc RepoLocation, hash, mode string) (OpResult, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return OpResult{Success: false, Message: "Commit hash is required"}, nil
+	}
+	flag := "--mixed"
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "soft":
+		flag = "--soft"
+	case "hard":
+		flag = "--hard"
+	case "mixed", "":
+		flag = "--mixed"
+	default:
+		return OpResult{Success: false, Message: "Invalid reset mode: " + mode}, nil
+	}
+
+	stdout, stderr, err := RunGit(ctx, loc, "reset", flag, hash)
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		return OpResult{
+			Success: false,
+			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			Output:  combined,
+		}, nil
+	}
+	short := hash
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	return OpResult{
+		Success: true,
+		Message: fmt.Sprintf("Reset (%s) to %s", strings.TrimPrefix(flag, "--"), short),
+		Output:  combined,
+	}, nil
+}
+
+// GetCommitTree returns all tracked files and their sizes at a specific commit snapshot.
+func GetCommitTree(ctx context.Context, loc RepoLocation, hash string) ([]CommitTreeEntry, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return []CommitTreeEntry{}, nil
+	}
+	out, stderr, err := RunGit(ctx, loc, "ls-tree", "-r", "-l", "-z", hash)
+	if err != nil {
+		return nil, fmt.Errorf("git ls-tree failed: %s (%w)", strings.TrimSpace(stderr), err)
+	}
+	entries := []CommitTreeEntry{}
+	for _, rec := range strings.Split(out, "\x00") {
+		if rec == "" {
+			continue
+		}
+		// Format: <mode> <type> <object> <size>\t<path>
+		tabIdx := strings.IndexByte(rec, '\t')
+		if tabIdx < 0 {
+			continue
+		}
+		meta := strings.Fields(rec[:tabIdx])
+		filePath := rec[tabIdx+1:]
+		if len(meta) < 4 {
+			continue
+		}
+		var sz int64
+		if meta[3] != "-" {
+			sz, _ = strconv.ParseInt(meta[3], 10, 64)
+		}
+		entries = append(entries, CommitTreeEntry{
+			Path: filePath,
+			Size: sz,
+		})
+	}
+	return entries, nil
+}
+
+// GetCommitFileContent returns file content (up to 512 KB) or binary metadata at a specific commit.
+func GetCommitFileContent(ctx context.Context, loc RepoLocation, hash, relPath string) (CommitFileContent, error) {
+	res := CommitFileContent{Path: relPath}
+	spec := strings.TrimSpace(hash) + ":" + relPath
+
+	if szOut, _, err := RunGit(ctx, loc, "cat-file", "-s", spec); err == nil {
+		res.Size, _ = strconv.ParseInt(strings.TrimSpace(szOut), 10, 64)
+	}
+
+	var cmd *exec.Cmd
+	if loc.IsWSL {
+		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--cd", loc.LinuxPath, "--", "git", "cat-file", "blob", spec)
+	} else {
+		cmd = exec.CommandContext(ctx, "git", "cat-file", "blob", spec)
+		cmd.Dir = loc.Path
+	}
+	cmd.Env = append(os.Environ(), "LC_ALL=C.UTF-8")
+	hideWindow(cmd)
+
+	raw, err := cmd.Output()
+	if err != nil {
+		res.RawError = fmt.Sprintf("Failed to read file at %s: %v", hash, err)
+		return res, nil
+	}
+
+	const maxPreview = 512 * 1024
+	checkLen := len(raw)
+	if checkLen > 8192 {
+		checkLen = 8192
+	}
+	if bytes.IndexByte(raw[:checkLen], 0) >= 0 {
+		res.IsBinary = true
+		return res, nil
+	}
+	if len(raw) > maxPreview {
+		raw = raw[:maxPreview]
+		res.Truncated = true
+	}
+	res.Content = strings.ReplaceAll(string(raw), "\r\n", "\n")
+	return res, nil
 }
 
 func firstNonEmpty(vals ...string) string {

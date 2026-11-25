@@ -219,6 +219,30 @@ func (s *GitService) GetCommitFileDiff(repoPath, hash, relPath string, ignoreWhi
 	return git.GetCommitFileDiff(ctx, git.ParseRepoLocation(repoPath), hash, relPath, ignoreWhitespace)
 }
 
+func (s *GitService) RevertCommit(repoPath, hash string, isMerge bool) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.RevertCommit(ctx, git.ParseRepoLocation(repoPath), hash, isMerge)
+}
+
+func (s *GitService) ResetToCommit(repoPath, hash, mode string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.ResetToCommit(ctx, git.ParseRepoLocation(repoPath), hash, mode)
+}
+
+func (s *GitService) GetCommitTree(repoPath, hash string) ([]git.CommitTreeEntry, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.GetCommitTree(ctx, git.ParseRepoLocation(repoPath), hash)
+}
+
+func (s *GitService) GetCommitFileContent(repoPath, hash, relPath string) (git.CommitFileContent, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.GetCommitFileContent(ctx, git.ParseRepoLocation(repoPath), hash, relPath)
+}
+
 // --- Branches, Tags & Stashes ---
 
 func (s *GitService) ListBranches(repoPath string) ([]git.BranchInfo, error) {

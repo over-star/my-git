@@ -68,12 +68,20 @@ export function GetCommitDetail(repoPath: string, hash: string): $CancellablePro
     return $Call.ByID(3201551583, repoPath, hash);
 }
 
+export function GetCommitFileContent(repoPath: string, hash: string, relPath: string): $CancellablePromise<git$0.CommitFileContent> {
+    return $Call.ByID(2268422365, repoPath, hash, relPath);
+}
+
 export function GetCommitFileDiff(repoPath: string, hash: string, relPath: string, ignoreWhitespace: boolean): $CancellablePromise<git$0.FileDiff> {
     return $Call.ByID(2802220399, repoPath, hash, relPath, ignoreWhitespace);
 }
 
 export function GetCommitHistory(repoPath: string, branch: string, search: string, skip: number, limit: number): $CancellablePromise<git$0.CommitPage> {
     return $Call.ByID(940359990, repoPath, branch, search, skip, limit);
+}
+
+export function GetCommitTree(repoPath: string, hash: string): $CancellablePromise<git$0.CommitTreeEntry[] | null> {
+    return $Call.ByID(2309545346, repoPath, hash);
 }
 
 export function GetConflictFile(repoPath: string, relPath: string): $CancellablePromise<git$0.ConflictFileContent> {
@@ -178,6 +186,14 @@ export function RemoveRecentRepo(repoPath: string): $CancellablePromise<git$0.Re
 
 export function RenameBranch(repoPath: string, oldName: string, newName: string): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(1363441787, repoPath, oldName, newName);
+}
+
+export function ResetToCommit(repoPath: string, hash: string, mode: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(1497050880, repoPath, hash, mode);
+}
+
+export function RevertCommit(repoPath: string, hash: string, isMerge: boolean): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(2184707978, repoPath, hash, isMerge);
 }
 
 export function SaveGitConfig(upd: git$0.GitConfigUpdate): $CancellablePromise<git$0.OpResult> {
