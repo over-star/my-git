@@ -1,0 +1,452 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><meta content="web_dashboard" name="shell-type"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"outline-variant":"#bfc7d2","surface-container-low":"#eff4ff","primary-container":"#007bb9","surface-container-lowest":"#ffffff","tertiary-fixed-dim":"#62df7d","inverse-primary":"#93ccff","primary":"#006194","secondary":"#712ae2","tertiary":"#006b2c","surface-tint":"#006398","on-tertiary":"#ffffff","on-primary":"#ffffff","on-surface-variant":"#3f4850","tertiary-container":"#00873a","on-secondary-fixed":"#25005a","on-background":"#0b1c30","primary-fixed":"#cce5ff","outline":"#707881","surface":"#f8f9ff","on-secondary-fixed-variant":"#5a00c6","secondary-container":"#8a4cfc","tertiary-fixed":"#7ffc97","on-primary-fixed":"#001d31","error-container":"#ffdad6","background":"#f8f9ff","secondary-fixed-dim":"#d2bbff","on-error":"#ffffff","on-surface":"#0b1c30","on-primary-fixed-variant":"#004b73","primary-fixed-dim":"#93ccff","inverse-on-surface":"#eaf1ff","surface-bright":"#f8f9ff","on-secondary":"#ffffff","surface-container-highest":"#d3e4fe","on-primary-container":"#fdfcff","surface-variant":"#d3e4fe","inverse-surface":"#213145","on-tertiary-fixed":"#002109","secondary-fixed":"#eaddff","surface-dim":"#cbdbf5","on-error-container":"#93000a","on-tertiary-fixed-variant":"#005320","surface-container-high":"#dce9ff","on-secondary-container":"#fffbff","surface-container":"#e5eeff","on-tertiary-container":"#f7fff2","error":"#ba1a1a"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"space-lg":"0.75rem","gutter":"0.75rem","space-sm":"0.375rem","space-xs":"0.25rem","space-md":"0.5rem","margin":"1rem","space-xl":"1rem"},fontFamily:{"code-sm":["JetBrains Mono"],"code-md":["JetBrains Mono"],"title-md":["Geist"],"headline-sm":["Geist"],"label-md":["Geist"],"title-sm":["Geist"],"headline-md":["Geist"],"body-md":["Geist"],"label-sm":["Geist"],"headline-lg":["Geist"],"body-sm":["Geist"],"code-sha":["JetBrains Mono"]},fontSize:{"code-sm":["11px",{"lineHeight":"16px","letterSpacing":"0em","fontWeight":"400"}],"code-md":["12px",{"lineHeight":"18px","letterSpacing":"0em","fontWeight":"400"}],"title-md":["13px",{"lineHeight":"18px","letterSpacing":"-0.005em","fontWeight":"600"}],"headline-sm":["14px",{"lineHeight":"20px","letterSpacing":"-0.01em","fontWeight":"600"}],"label-md":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"500"}],"title-sm":["12px",{"lineHeight":"16px","letterSpacing":"0em","fontWeight":"500"}],"headline-md":["18px",{"lineHeight":"24px","letterSpacing":"-0.015em","fontWeight":"600"}],"body-md":["13px",{"lineHeight":"18px","letterSpacing":"0em","fontWeight":"400"}],"label-sm":["10px",{"lineHeight":"12px","letterSpacing":"0.04em","fontWeight":"600"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.02em","fontWeight":"600"}],"body-sm":["12px",{"lineHeight":"16px","letterSpacing":"0em","fontWeight":"400"}],"code-sha":["11px",{"lineHeight":"14px","letterSpacing":"0.05em","fontWeight":"500"}]}}}}</script></head><body class="bg-surface font-body-sm text-body-sm text-on-surface antialiased select-none"><header class="fixed top-0 left-0 right-0 z-50 bg-surface-container-low shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-8 px-space-md flex items-center justify-between bg-surface-container"><div class="flex items-center gap-space-sm"><div class="flex items-center justify-center w-5 h-5 rounded-lg bg-primary text-on-primary"><span class="material-symbols-outlined text-[14px]">source_environment</span></div><div class="flex items-center ml-space-xs"><div class="flex items-center gap-space-xs px-space-md py-space-xs bg-surface-container-lowest rounded-t-lg shadow-sm"><span class="material-symbols-outlined text-[13px] text-primary">folder_open</span><span class="font-title-sm text-title-sm text-on-surface">frontend-monorepo</span><button class="text-on-surface-variant hover:text-on-surface ml-space-xs" type="button"><span class="material-symbols-outlined text-[13px]">close</span></button></div><button class="px-space-sm py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded-lg transition-colors ml-space-xs" type="button"><span class="material-symbols-outlined text-[14px]">add</span></button></div></div><div class="font-label-sm text-label-sm text-on-surface-variant tracking-wider uppercase opacity-75">GitPulse • Fork Engine (Win32 x64)</div><div class="flex items-center"><button aria-label="Minimize" class="h-8 w-11 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[14px]">minimize</span></button><button aria-label="Maximize" class="h-8 w-11 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[14px]">check_box_outline_blank</span></button><button aria-label="Close" class="h-8 w-11 flex items-center justify-center text-on-surface-variant hover:bg-error hover:text-on-error transition-colors" type="button"><span class="material-symbols-outlined text-[14px]">close</span></button></div></div><div class="h-10 px-space-md bg-surface-container-lowest flex items-center justify-between gap-space-md"><div class="flex items-center gap-space-xs"><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px] text-primary">sync</span><span class="font-label-md text-label-md">Fetch</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px] text-primary">arrow_downward</span><span class="font-label-md text-label-md">Pull</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px] text-primary">arrow_upward</span><span class="font-label-md text-label-md">Push</span></button><div class="h-4 w-px bg-outline-variant/40 mx-space-xs"></div><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">archive</span><span class="font-label-md text-label-md">Stash</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">unarchive</span><span class="font-label-md text-label-md">Pop</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">call_split</span><span class="font-label-md text-label-md">Branch</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">label</span><span class="font-label-md text-label-md">Tag</span></button><div class="h-4 w-px bg-outline-variant/40 mx-space-xs"></div><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">terminal</span><span class="font-label-md text-label-md">Terminal</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">folder</span><span class="font-label-md text-label-md">Explorer</span></button></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs bg-surface-container-low px-space-md py-space-xs rounded-lg"><span class="material-symbols-outlined text-[14px] text-tertiary">cloud_done</span><span class="font-code-sm text-code-sm text-on-surface-variant">origin/main</span><span class="font-code-sha text-code-sha text-on-surface-variant bg-surface-container px-space-xs rounded">up-to-date</span></div><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div><div class="h-10 px-space-md bg-surface-container-low flex items-center justify-between"><nav class="flex items-center gap-space-xs" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="px-space-md py-space-xs font-title-sm text-title-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="commit-graph" href="#">Commit Graph</a><a class="px-space-md py-space-xs font-title-sm text-title-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="staging-diff" href="#">Staging &amp; Working Tree</a><a aria-current="page" class="px-space-md py-space-xs transition-colors bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm" data-path="merge-resolver" href="#">Merge Conflict Resolver</a></nav><div class="flex items-center gap-space-xs"><div class="flex items-center bg-surface-container-lowest px-space-md py-space-xs rounded-lg shadow-sm"><span class="material-symbols-outlined text-[15px] text-outline mr-space-xs">search</span><span class="font-label-md text-label-md text-outline">Filter commits, files, tags (Ctrl+F)</span></div></div></div></header><aside class="fixed left-0 top-28 bottom-6 w-60 bg-surface-container-low z-30 flex flex-col p-space-xs overflow-y-auto"><div class="py-space-xs px-space-sm"><div class="flex items-center justify-between text-on-surface-variant hover:text-on-surface py-space-xs cursor-pointer"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[14px]">expand_more</span><span class="font-label-sm text-label-sm uppercase tracking-wider text-outline">Local Branches</span></div><span class="font-code-sm text-code-sm text-outline">5</span></div><div class="pl-space-md flex flex-col gap-0.5"><div class="flex items-center justify-between px-space-sm py-space-xs rounded-lg bg-surface-container text-primary font-title-sm text-title-sm"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px]">check</span><span>main</span></div><span class="font-code-sha text-code-sha px-space-xs bg-surface-container-high rounded text-on-surface-variant">HEAD</span></div><div class="flex items-center justify-between px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px] opacity-0">check</span><span>feat/monorepo-pipeline</span></div><span class="font-code-sm text-code-sm text-outline">↑1</span></div><div class="flex items-center justify-between px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px] opacity-0">check</span><span>fix/hydration-mismatch</span></div></div><div class="flex items-center justify-between px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px] opacity-0">check</span><span>release/v2.4.0</span></div></div></div></div><div class="py-space-xs px-space-sm"><div class="flex items-center justify-between text-on-surface-variant hover:text-on-surface py-space-xs cursor-pointer"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[14px]">expand_more</span><span class="font-label-sm text-label-sm uppercase tracking-wider text-outline">Remotes (origin)</span></div><span class="font-code-sm text-code-sm text-outline">4</span></div><div class="pl-space-md flex flex-col gap-0.5"><div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><span class="material-symbols-outlined text-[14px] text-outline">cloud</span><span>origin/main</span></div><div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><span class="material-symbols-outlined text-[14px] text-outline">cloud</span><span>origin/dev</span></div></div></div><div class="py-space-xs px-space-sm"><div class="flex items-center justify-between text-on-surface-variant hover:text-on-surface py-space-xs cursor-pointer"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[14px]">expand_more</span><span class="font-label-sm text-label-sm uppercase tracking-wider text-outline">Tags</span></div><span class="font-code-sm text-code-sm text-outline">12</span></div></div><div class="py-space-xs px-space-sm"><div class="flex items-center justify-between text-on-surface-variant hover:text-on-surface py-space-xs cursor-pointer"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[14px]">expand_more</span><span class="font-label-sm text-label-sm uppercase tracking-wider text-outline">Stashes</span></div><span class="font-code-sm text-code-sm text-outline">2</span></div></div></aside><div class="pl-60"><main class="relative pt-28 pb-6 w-full px-space-md bg-surface"><div class="flex flex-col w-full gap-space-sm pb-space-lg">
+<!-- Fluent Style Windows 11 Merge In-Progress Notification Strip -->
+<div class="w-full bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col md:flex-row items-stretch md:items-center justify-between p-space-md gap-space-md">
+<div class="flex items-center gap-space-md min-w-0">
+<div class="w-9 h-9 rounded-lg bg-error-container text-on-error-container flex items-center justify-center shrink-0 shadow-sm">
+<span class="material-symbols-outlined text-[20px]">warning</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="font-headline-sm text-headline-sm text-on-surface">Merge in progress:</span>
+<span class="px-space-xs py-0.5 rounded bg-secondary-fixed text-on-secondary-fixed font-code-sm text-code-sm font-semibold">feature/auth-v2</span>
+<span class="material-symbols-outlined text-[14px] text-outline">arrow_forward</span>
+<span class="px-space-xs py-0.5 rounded bg-primary-fixed text-on-primary-fixed font-code-sm text-code-sm font-semibold">main</span>
+<span class="px-space-xs py-0.5 rounded-full bg-error text-on-error font-label-sm text-label-sm uppercase tracking-wide ml-space-xs" id="conflict-badge">1 unresolved</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">
+          Automatic rebase halted at commit <span class="font-code-sha text-code-sha bg-surface-container px-space-xs rounded">e14a90f</span>. Resolve conflicting hunks to continue.
+        </p>
+</div>
+</div>
+<!-- Quick Workflow CTAs -->
+<div class="flex items-center gap-space-xs shrink-0 self-end md:self-auto">
+<button class="px-space-md py-space-xs rounded-lg font-title-sm text-title-sm bg-error-container text-on-error-container hover:bg-error hover:text-on-error transition-colors flex items-center gap-space-xs shadow-sm" type="button">
+<span class="material-symbols-outlined text-[15px]">cancel</span>
+<span>Abort Merge</span>
+</button>
+<button class="px-space-md py-space-xs rounded-lg font-title-sm text-title-sm bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[15px]">restart_alt</span>
+<span>Reset Hunk</span>
+</button>
+<button class="px-space-lg py-space-xs rounded-lg font-title-sm text-title-sm bg-primary-container text-on-primary-container opacity-45 cursor-not-allowed transition-all flex items-center gap-space-xs shadow-sm" disabled="" id="commit-merge-btn" type="button">
+<span class="material-symbols-outlined text-[16px]">merge_type</span>
+<span>Commit Merge (0/1)</span>
+</button>
+</div>
+</div>
+<!-- Primary Fork 3-Way Grid Workbench -->
+<div class="grid grid-cols-12 gap-space-sm w-full items-start">
+<!-- Left 9-Cols: 3-Way Interactive Conflict Workspace (Split Top + Result Bottom) -->
+<div class="col-span-12 xl:col-span-9 flex flex-col gap-space-sm min-w-0">
+<!-- Hunk Global Action Bar -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm px-space-md py-space-xs flex items-center justify-between">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="material-symbols-outlined text-primary text-[18px]">difference</span>
+<span class="font-title-md text-title-md text-on-surface font-semibold truncate">session-store.ts</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant bg-surface-container px-space-xs py-0.5 rounded">Conflict 1 of 1</span>
+<span class="font-code-sm text-code-sm text-outline">@@ -42,11 +42,16 @@</span>
+</div>
+<!-- Choice Trigger Buttons (Fork Signature Ergonomics) -->
+<div class="flex items-center gap-space-xs">
+<button class="px-space-sm py-space-xs rounded font-label-md text-label-md bg-primary-fixed text-on-primary-fixed hover:bg-primary hover:text-on-primary transition-colors flex items-center gap-1 shadow-sm" id="action-ours" type="button">
+<span class="material-symbols-outlined text-[13px]">arrow_back</span>
+<span>Choose Ours</span>
+</button>
+<button class="px-space-sm py-space-xs rounded font-label-md text-label-md bg-secondary-fixed text-on-secondary-fixed hover:bg-secondary hover:text-on-secondary transition-colors flex items-center gap-1 shadow-sm" id="action-theirs" type="button">
+<span>Choose Theirs</span>
+<span class="material-symbols-outlined text-[13px]">arrow_forward</span>
+</button>
+<div class="w-px h-4 bg-surface-container-high mx-space-xs"></div>
+<button class="px-space-sm py-space-xs rounded font-label-md text-label-md bg-surface-container-low text-on-surface hover:bg-surface-container transition-colors shadow-sm" id="action-both-ours-theirs" type="button">
+            Both (Ours → Theirs)
+          </button>
+<button class="px-space-sm py-space-xs rounded font-label-md text-label-md bg-surface-container-low text-on-surface hover:bg-surface-container transition-colors shadow-sm" id="action-both-theirs-ours" type="button">
+            Both (Theirs → Ours)
+          </button>
+</div>
+</div>
+<!-- Upper Split Screen: OURS vs THEIRS Side-by-Side (Fork Desktop Style) -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm w-full">
+<!-- Left Pane: OURS (HEAD: main) -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col">
+<div class="bg-primary/10 px-space-md py-space-xs flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[15px]">call_split</span>
+<span class="font-title-sm text-title-sm text-primary font-semibold">OURS (Local: main / HEAD)</span>
+</div>
+<span class="font-code-sha text-code-sha bg-primary-fixed text-on-primary-fixed px-space-xs rounded">9bf421a</span>
+</div>
+<div class="p-space-xs font-code-sm text-code-sm overflow-x-auto bg-surface-container-lowest flex flex-col">
+<!-- Context Line -->
+<div class="flex items-center text-on-surface-variant hover:bg-surface-container-low py-0.5 px-space-xs rounded">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">40</span>
+<span class="truncate">export interface SessionConfig {</span>
+</div>
+<div class="flex items-center text-on-surface-variant hover:bg-surface-container-low py-0.5 px-space-xs rounded">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">41</span>
+<span class="truncate pl-3">ttlSeconds: number;</span>
+</div>
+<!-- Conflicted Ours Block (Soft Blue Tint) -->
+<div class="bg-primary-fixed/30 rounded px-space-xs py-1 flex flex-col my-1 shadow-sm">
+<div class="flex items-center text-primary py-0.5">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-semibold font-code-sha text-primary">42</span>
+<span class="truncate pl-3 font-semibold">storageDriver: 'redis' | 'memory-v2';</span>
+</div>
+<div class="flex items-center text-primary py-0.5">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-semibold font-code-sha text-primary">43</span>
+<span class="truncate pl-3 font-semibold">clusterNodes?: string[];</span>
+</div>
+<div class="flex items-center text-primary py-0.5">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-semibold font-code-sha text-primary">44</span>
+<span class="truncate pl-3 font-semibold">fallbackToLocalCache: boolean;</span>
+</div>
+</div>
+<!-- Context Line -->
+<div class="flex items-center text-on-surface-variant hover:bg-surface-container-low py-0.5 px-space-xs rounded">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">45</span>
+<span class="truncate">}</span>
+</div>
+<div class="flex items-center text-on-surface-variant hover:bg-surface-container-low py-0.5 px-space-xs rounded">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">46</span>
+<span class="truncate">export const DEFAULT_TTL = 3600;</span>
+</div>
+</div>
+</div>
+<!-- Right Pane: THEIRS (Incoming Branch) -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col">
+<div class="bg-secondary/10 px-space-md py-space-xs flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-secondary text-[15px]">call_received</span>
+<span class="font-title-sm text-title-sm text-secondary font-semibold">THEIRS (Remote: feature/auth-v2)</span>
+</div>
+<span class="font-code-sha text-code-sha bg-secondary-fixed text-on-secondary-fixed px-space-xs rounded">3a7ec92</span>
+</div>
+<div class="p-space-xs font-code-sm text-code-sm overflow-x-auto bg-surface-container-lowest flex flex-col">
+<!-- Context Line -->
+<div class="flex items-center text-on-surface-variant hover:bg-surface-container-low py-0.5 px-space-xs rounded">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">40</span>
+<span class="truncate">export interface SessionConfig {</span>
+</div>
+<div class="flex items-center text-on-surface-variant hover:bg-surface-container-low py-0.5 px-space-xs rounded">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">41</span>
+<span class="truncate pl-3">ttlSeconds: number;</span>
+</div>
+<!-- Conflicted Theirs Block (Soft Purple Tint) -->
+<div class="bg-secondary-fixed/30 rounded px-space-xs py-1 flex flex-col my-1 shadow-sm">
+<div class="flex items-center text-secondary py-0.5">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-semibold font-code-sha text-secondary">42</span>
+<span class="truncate pl-3 font-semibold">storageDriver: 'valkey' | 'dynamo-tiered';</span>
+</div>
+<div class="flex items-center text-secondary py-0.5">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-semibold font-code-sha text-secondary">43</span>
+<span class="truncate pl-3 font-semibold">encryptionKeyArn?: string;</span>
+</div>
+<div class="flex items-center text-secondary py-0.5">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-semibold font-code-sha text-secondary">44</span>
+<span class="truncate pl-3 font-semibold">replicateAcrossRegions: true;</span>
+</div>
+</div>
+<!-- Context Line -->
+<div class="flex items-center text-on-surface-variant hover:bg-surface-container-low py-0.5 px-space-xs rounded">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">45</span>
+<span class="truncate">}</span>
+</div>
+<div class="flex items-center text-on-surface-variant hover:bg-surface-container-low py-0.5 px-space-xs rounded">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">46</span>
+<span class="truncate">export const DEFAULT_TTL = 3600;</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Lower Pane: RESULT (Output Editor with Live Resolution State) -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col">
+<div class="bg-surface-container px-space-md py-space-xs flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[17px]">edit_note</span>
+<span class="font-title-sm text-title-sm text-on-surface font-semibold">MERGE RESULT (Output Buffer)</span>
+<span class="px-space-xs py-0.5 rounded text-label-sm font-label-sm bg-error-container text-on-error-container uppercase font-bold" id="editor-status">Unresolved Markers Present</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="px-space-sm py-0.5 rounded text-label-md font-label-md bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors" id="manual-toggle-btn" type="button">
+              Reset to Conflict Markers
+            </button>
+<button class="px-space-md py-1 rounded-lg text-label-md font-label-md bg-tertiary text-on-tertiary hover:bg-tertiary-container transition-colors flex items-center gap-1 shadow-sm font-semibold" id="mark-resolved-btn" type="button">
+<span class="material-symbols-outlined text-[14px]">check</span>
+<span>Mark as Resolved</span>
+</button>
+</div>
+</div>
+<!-- Editable / Rendered Result Viewer -->
+<div class="p-space-sm font-code-sm text-code-sm flex flex-col gap-0.5 bg-surface-container-lowest" id="result-view-container">
+<div class="flex items-center text-on-surface-variant py-0.5 px-space-xs">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">40</span>
+<span>export interface SessionConfig {</span>
+</div>
+<div class="flex items-center text-on-surface-variant py-0.5 px-space-xs">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">41</span>
+<span class="pl-3">ttlSeconds: number;</span>
+</div>
+<!-- Dynamic Output Conflict Slot -->
+<div class="my-1 flex flex-col rounded bg-error-container/20 p-space-xs" id="result-dynamic-block">
+<!-- Marker Header (Ours) -->
+<div class="flex items-center text-error font-semibold py-0.5 bg-error-container/40 rounded px-space-xs">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">&lt;&lt;&lt;</span>
+<span>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD (main)</span>
+</div>
+<!-- Ours lines -->
+<div class="flex items-center text-primary py-0.5 px-space-xs bg-primary-fixed/20">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">42</span>
+<span class="pl-3">storageDriver: 'redis' | 'memory-v2';</span>
+</div>
+<div class="flex items-center text-primary py-0.5 px-space-xs bg-primary-fixed/20">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">43</span>
+<span class="pl-3">clusterNodes?: string[];</span>
+</div>
+<div class="flex items-center text-primary py-0.5 px-space-xs bg-primary-fixed/20">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">44</span>
+<span class="pl-3">fallbackToLocalCache: boolean;</span>
+</div>
+<!-- Marker Divider -->
+<div class="flex items-center text-error font-semibold py-0.5 bg-error-container/40 rounded px-space-xs my-0.5">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">===</span>
+<span>=======</span>
+</div>
+<!-- Theirs lines -->
+<div class="flex items-center text-secondary py-0.5 px-space-xs bg-secondary-fixed/20">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">45</span>
+<span class="pl-3">storageDriver: 'valkey' | 'dynamo-tiered';</span>
+</div>
+<div class="flex items-center text-secondary py-0.5 px-space-xs bg-secondary-fixed/20">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">46</span>
+<span class="pl-3">encryptionKeyArn?: string;</span>
+</div>
+<div class="flex items-center text-secondary py-0.5 px-space-xs bg-secondary-fixed/20">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">47</span>
+<span class="pl-3">replicateAcrossRegions: true;</span>
+</div>
+<!-- Marker Footer (Theirs) -->
+<div class="flex items-center text-error font-semibold py-0.5 bg-error-container/40 rounded px-space-xs">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha">&gt;&gt;&gt;</span>
+<span>&gt;&gt;&gt;&gt;&gt;&gt;&gt; feature/auth-v2</span>
+</div>
+</div>
+<div class="flex items-center text-on-surface-variant py-0.5 px-space-xs">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">48</span>
+<span>}</span>
+</div>
+<div class="flex items-center text-on-surface-variant py-0.5 px-space-xs">
+<span class="w-8 shrink-0 text-right pr-space-sm select-none opacity-40 font-code-sha">49</span>
+<span>export const DEFAULT_TTL = 3600;</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right 3-Cols Sidebar: Conflicted Files List, Navigator & Topological Merge Graph -->
+<div class="col-span-12 xl:col-span-3 flex flex-col gap-space-sm">
+<!-- Conflicted Files Card -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-on-surface">checklist</span>
+<span class="font-title-sm text-title-sm text-on-surface font-semibold">Conflicted Files</span>
+</div>
+<span class="font-label-sm text-label-sm px-space-xs py-0.5 rounded-full bg-error-container text-on-error-container font-semibold" id="file-counter-pill">1 of 3 left</span>
+</div>
+<div class="flex flex-col gap-1">
+<!-- Item 1: Conflicted & Active -->
+<div class="flex items-center justify-between p-space-xs rounded-lg bg-surface-container-high transition-colors cursor-pointer" id="file-item-session">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-[16px] text-error shrink-0" id="file-icon-session">emergency</span>
+<span class="font-title-sm text-title-sm text-on-surface truncate">session-store.ts</span>
+</div>
+<span class="font-label-sm text-label-sm px-space-xs py-0.5 rounded bg-error text-on-error shrink-0" id="file-tag-session">1 Conflict</span>
+</div>
+<!-- Item 2: Resolved -->
+<div class="flex items-center justify-between p-space-xs rounded-lg hover:bg-surface-container transition-colors cursor-pointer">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-[16px] text-tertiary shrink-0">check_circle</span>
+<span class="font-body-sm text-body-sm text-on-surface truncate">jwt-signer.ts</span>
+</div>
+<span class="font-label-sm text-label-sm px-space-xs py-0.5 rounded bg-tertiary-fixed text-on-tertiary-fixed shrink-0">Resolved</span>
+</div>
+<!-- Item 3: Auto-merged -->
+<div class="flex items-center justify-between p-space-xs rounded-lg hover:bg-surface-container transition-colors cursor-pointer">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-[16px] text-tertiary shrink-0">done_all</span>
+<span class="font-body-sm text-body-sm text-on-surface truncate">package.json</span>
+</div>
+<span class="font-label-sm text-label-sm px-space-xs py-0.5 rounded bg-surface-container-high text-on-surface-variant shrink-0">Auto-merged</span>
+</div>
+</div>
+<!-- Jump Navigation Controls -->
+<div class="pt-space-xs flex items-center justify-between gap-space-xs">
+<button class="flex-1 py-1 px-space-xs rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface flex items-center justify-center gap-1 transition-colors font-label-md text-label-md" type="button">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+<span>Prev Conflict (Alt+P)</span>
+</button>
+<button class="flex-1 py-1 px-space-xs rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface flex items-center justify-center gap-1 transition-colors font-label-md text-label-md" type="button">
+<span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+<span>Next Conflict (Alt+N)</span>
+</button>
+</div>
+</div>
+<!-- Fork Merge Topological Ancestry Visualizer -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-primary">hub</span>
+<span class="font-title-sm text-title-sm text-on-surface font-semibold">Topological Graph</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline uppercase">3-Way Ancestry</span>
+</div>
+<!-- Inline SVG Graph Schema -->
+<div class="relative bg-surface-container-low rounded-lg p-space-sm flex flex-col items-center justify-center">
+<svg class="w-full h-36" fill="none" viewBox="0 0 240 140" xmlns="http://www.w3.org/2000/svg">
+<!-- Common Ancestor Node -->
+<circle class="fill-outline" cx="120" cy="20" r="6"></circle>
+<text class="fill-on-surface font-code-sha text-[10px]" x="135" y="24">Base: e14a90f</text>
+<!-- Fork Curves -->
+<path d="M120 26 C120 45, 60 45, 60 70" stroke="#006194" stroke-linecap="round" stroke-width="2"></path>
+<path d="M120 26 C120 45, 180 45, 180 70" stroke="#712ae2" stroke-linecap="round" stroke-width="2"></path>
+<!-- OURS Node -->
+<circle class="fill-primary stroke-[2] stroke-surface" cx="60" cy="70" r="7"></circle>
+<text class="fill-primary font-code-sha text-[9px] font-semibold" x="14" y="86">HEAD (main)</text>
+<!-- THEIRS Node -->
+<circle class="fill-secondary stroke-[2] stroke-surface" cx="180" cy="70" r="7"></circle>
+<text class="fill-secondary font-code-sha text-[9px] font-semibold" x="140" y="86">auth-v2</text>
+<!-- Merge Target Point -->
+<path d="M60 77 C60 100, 120 100, 120 120" stroke="#006194" stroke-dasharray="3 3" stroke-width="2"></path>
+<path d="M180 77 C180 100, 120 100, 120 120" stroke="#712ae2" stroke-dasharray="3 3" stroke-width="2"></path>
+<circle class="fill-tertiary" cx="120" cy="120" r="6"></circle>
+<text class="fill-tertiary font-title-sm text-[10px] font-bold" x="134" y="124">Merge Commit</text>
+</svg>
+</div>
+<div class="flex flex-col gap-1 font-body-sm text-body-sm text-on-surface-variant">
+<div class="flex items-center justify-between text-label-md">
+<span>Base Ancestor:</span>
+<span class="font-code-sha text-code-sha bg-surface-container px-space-xs rounded">e14a90f</span>
+</div>
+<div class="flex items-center justify-between text-label-md">
+<span>Ours (main):</span>
+<span class="font-code-sha text-code-sha bg-primary-fixed text-on-primary-fixed px-space-xs rounded">9bf421a</span>
+</div>
+<div class="flex items-center justify-between text-label-md">
+<span>Theirs (feature):</span>
+<span class="font-code-sha text-code-sha bg-secondary-fixed text-on-secondary-fixed px-space-xs rounded">3a7ec92</span>
+</div>
+</div>
+</div>
+<!-- Quick Shortcuts Card -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col gap-space-xs">
+<span class="font-title-sm text-title-sm text-on-surface font-semibold">Keyboard Acceleration</span>
+<div class="grid grid-cols-2 gap-space-xs text-on-surface-variant font-code-sm text-code-sm pt-space-xs">
+<div class="bg-surface-container px-space-xs py-1 rounded flex justify-between">
+<span>Choose Ours</span>
+<span class="font-code-sha opacity-70">1</span>
+</div>
+<div class="bg-surface-container px-space-xs py-1 rounded flex justify-between">
+<span>Choose Theirs</span>
+<span class="font-code-sha opacity-70">2</span>
+</div>
+<div class="bg-surface-container px-space-xs py-1 rounded flex justify-between">
+<span>Both (1→2)</span>
+<span class="font-code-sha opacity-70">B</span>
+</div>
+<div class="bg-surface-container px-space-xs py-1 rounded flex justify-between">
+<span>Save &amp; Mark</span>
+<span class="font-code-sha opacity-70">Ctrl+S</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+  (function initConflictResolver() {
+    const dynamicBlock = document.getElementById('result-dynamic-block');
+    const editorStatus = document.getElementById('editor-status');
+    const commitMergeBtn = document.getElementById('commit-merge-btn');
+    const conflictBadge = document.getElementById('conflict-badge');
+    const fileCounterPill = document.getElementById('file-counter-pill');
+    const fileIconSession = document.getElementById('file-icon-session');
+    const fileTagSession = document.getElementById('file-tag-session');
+    const markResolvedBtn = document.getElementById('mark-resolved-btn');
+
+    const oursCode = [
+      "  storageDriver: 'redis' | 'memory-v2';",
+      "  clusterNodes?: string[];",
+      "  fallbackToLocalCache: boolean;"
+    ];
+
+    const theirsCode = [
+      "  storageDriver: 'valkey' | 'dynamo-tiered';",
+      "  encryptionKeyArn?: string;",
+      "  replicateAcrossRegions: true;"
+    ];
+
+    function renderResolvedLines(lines, sourceTag) {
+      const tintClass = sourceTag === 'OURS' ? 'bg-primary-fixed/20 text-primary' : (sourceTag === 'THEIRS' ? 'bg-secondary-fixed/20 text-secondary' : 'bg-surface-container text-on-surface');
+      let html = '<div class="rounded p-space-xs my-0.5 ' + tintClass + '">';
+      lines.forEach((line, idx) => {
+        html += '<div class="flex items-center py-0.5 px-space-xs">' +
+                '<span class="w-8 shrink-0 text-right pr-space-sm select-none font-code-sha opacity-60">' + (42 + idx) + '</span>' +
+                '<span class="font-mono">' + line + '</span>' +
+                '</div>';
+      });
+      html += '</div>';
+      dynamicBlock.className = "my-1 flex flex-col rounded bg-surface-container-low p-space-xs";
+      dynamicBlock.innerHTML = html;
+
+      editorStatus.innerText = "Conflict Resolved (" + sourceTag + ")";
+      editorStatus.className = "px-space-xs py-0.5 rounded text-label-sm font-label-sm bg-tertiary-fixed text-on-tertiary-fixed uppercase font-bold";
+      unlockMergeReady();
+    }
+
+    function unlockMergeReady() {
+      commitMergeBtn.disabled = false;
+      commitMergeBtn.classList.remove('opacity-45', 'cursor-not-allowed');
+      commitMergeBtn.classList.add('hover:bg-primary', 'cursor-pointer');
+      commitMergeBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">check_circle</span><span>Commit Merge (1/1 Complete)</span>';
+
+      conflictBadge.innerText = '0 unresolved';
+      conflictBadge.className = 'px-space-xs py-0.5 rounded-full bg-tertiary text-on-tertiary font-label-sm text-label-sm uppercase tracking-wide ml-space-xs';
+
+      fileCounterPill.innerText = 'All resolved';
+      fileCounterPill.className = 'font-label-sm text-label-sm px-space-xs py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-semibold';
+
+      fileIconSession.innerText = 'check_circle';
+      fileIconSession.className = 'material-symbols-outlined text-[16px] text-tertiary shrink-0';
+
+      fileTagSession.innerText = 'Resolved';
+      fileTagSession.className = 'font-label-sm text-label-sm px-space-xs py-0.5 rounded bg-tertiary-fixed text-on-tertiary-fixed shrink-0';
+    }
+
+    document.getElementById('action-ours')?.addEventListener('click', () => {
+      renderResolvedLines(oursCode, 'OURS');
+    });
+
+    document.getElementById('action-theirs')?.addEventListener('click', () => {
+      renderResolvedLines(theirsCode, 'THEIRS');
+    });
+
+    document.getElementById('action-both-ours-theirs')?.addEventListener('click', () => {
+      renderResolvedLines([...oursCode, ...theirsCode], 'OURS + THEIRS');
+    });
+
+    document.getElementById('action-both-theirs-ours')?.addEventListener('click', () => {
+      renderResolvedLines([...theirsCode, ...oursCode], 'THEIRS + OURS');
+    });
+
+    markResolvedBtn?.addEventListener('click', () => {
+      renderResolvedLines(theirsCode, 'THEIRS (Manual)');
+    });
+
+    document.getElementById('manual-toggle-btn')?.addEventListener('click', () => {
+      location.reload();
+    });
+  })();
+</script></main></div><footer class="fixed bottom-0 left-0 right-0 h-6 bg-surface-container z-40 px-space-md flex items-center justify-between text-on-surface-variant font-label-md text-label-md shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs text-primary font-semibold"><span class="material-symbols-outlined text-[13px]">call_split</span><span>main</span></div><div class="flex items-center gap-space-xs font-code-sm text-code-sm text-on-surface-variant"><span>Ahead: 0</span><span>•</span><span>Behind: 0</span></div><div class="h-3 w-px bg-outline-variant/40"></div><div class="flex items-center gap-space-xs text-on-surface-variant"><span class="material-symbols-outlined text-[13px] text-tertiary">check</span><span>Working directory clean</span></div></div><div class="flex items-center gap-space-md"><span class="font-code-sm text-code-sm">UTF-8</span><span class="font-code-sm text-code-sm">LF</span><div class="h-3 w-px bg-outline-variant/40"></div><span class="font-code-sm text-code-sm">Git 2.45.2.windows.1</span></div></footer>
+
+</body></html>

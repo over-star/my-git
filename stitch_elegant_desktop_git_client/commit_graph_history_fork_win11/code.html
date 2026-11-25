@@ -1,0 +1,552 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><meta content="web_dashboard" name="shell-type"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"outline-variant":"#bfc7d2","surface-container-low":"#eff4ff","primary-container":"#007bb9","surface-container-lowest":"#ffffff","tertiary-fixed-dim":"#62df7d","inverse-primary":"#93ccff","primary":"#006194","secondary":"#712ae2","tertiary":"#006b2c","surface-tint":"#006398","on-tertiary":"#ffffff","on-primary":"#ffffff","on-surface-variant":"#3f4850","tertiary-container":"#00873a","on-secondary-fixed":"#25005a","on-background":"#0b1c30","primary-fixed":"#cce5ff","outline":"#707881","surface":"#f8f9ff","on-secondary-fixed-variant":"#5a00c6","secondary-container":"#8a4cfc","tertiary-fixed":"#7ffc97","on-primary-fixed":"#001d31","error-container":"#ffdad6","background":"#f8f9ff","secondary-fixed-dim":"#d2bbff","on-error":"#ffffff","on-surface":"#0b1c30","on-primary-fixed-variant":"#004b73","primary-fixed-dim":"#93ccff","inverse-on-surface":"#eaf1ff","surface-bright":"#f8f9ff","on-secondary":"#ffffff","surface-container-highest":"#d3e4fe","on-primary-container":"#fdfcff","surface-variant":"#d3e4fe","inverse-surface":"#213145","on-tertiary-fixed":"#002109","secondary-fixed":"#eaddff","surface-dim":"#cbdbf5","on-error-container":"#93000a","on-tertiary-fixed-variant":"#005320","surface-container-high":"#dce9ff","on-secondary-container":"#fffbff","surface-container":"#e5eeff","on-tertiary-container":"#f7fff2","error":"#ba1a1a"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"space-lg":"0.75rem","gutter":"0.75rem","space-sm":"0.375rem","space-xs":"0.25rem","space-md":"0.5rem","margin":"1rem","space-xl":"1rem"},fontFamily:{"code-sm":["JetBrains Mono"],"code-md":["JetBrains Mono"],"title-md":["Geist"],"headline-sm":["Geist"],"label-md":["Geist"],"title-sm":["Geist"],"headline-md":["Geist"],"body-md":["Geist"],"label-sm":["Geist"],"headline-lg":["Geist"],"body-sm":["Geist"],"code-sha":["JetBrains Mono"]},fontSize:{"code-sm":["11px",{"lineHeight":"16px","letterSpacing":"0em","fontWeight":"400"}],"code-md":["12px",{"lineHeight":"18px","letterSpacing":"0em","fontWeight":"400"}],"title-md":["13px",{"lineHeight":"18px","letterSpacing":"-0.005em","fontWeight":"600"}],"headline-sm":["14px",{"lineHeight":"20px","letterSpacing":"-0.01em","fontWeight":"600"}],"label-md":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"500"}],"title-sm":["12px",{"lineHeight":"16px","letterSpacing":"0em","fontWeight":"500"}],"headline-md":["18px",{"lineHeight":"24px","letterSpacing":"-0.015em","fontWeight":"600"}],"body-md":["13px",{"lineHeight":"18px","letterSpacing":"0em","fontWeight":"400"}],"label-sm":["10px",{"lineHeight":"12px","letterSpacing":"0.04em","fontWeight":"600"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.02em","fontWeight":"600"}],"body-sm":["12px",{"lineHeight":"16px","letterSpacing":"0em","fontWeight":"400"}],"code-sha":["11px",{"lineHeight":"14px","letterSpacing":"0.05em","fontWeight":"500"}]}}}}</script></head><body class="bg-surface font-body-sm text-body-sm text-on-surface antialiased select-none"><header class="fixed top-0 left-0 right-0 z-50 bg-surface-container-low shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-8 px-space-md flex items-center justify-between bg-surface-container"><div class="flex items-center gap-space-sm"><div class="flex items-center justify-center w-5 h-5 rounded-lg bg-primary text-on-primary"><span class="material-symbols-outlined text-[14px]">source_environment</span></div><div class="flex items-center ml-space-xs"><div class="flex items-center gap-space-xs px-space-md py-space-xs bg-surface-container-lowest rounded-t-lg shadow-sm"><span class="material-symbols-outlined text-[13px] text-primary">folder_open</span><span class="font-title-sm text-title-sm text-on-surface">frontend-monorepo</span><button class="text-on-surface-variant hover:text-on-surface ml-space-xs" type="button"><span class="material-symbols-outlined text-[13px]">close</span></button></div><button class="px-space-sm py-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high rounded-lg transition-colors ml-space-xs" type="button"><span class="material-symbols-outlined text-[14px]">add</span></button></div></div><div class="font-label-sm text-label-sm text-on-surface-variant tracking-wider uppercase opacity-75">GitPulse • Fork Engine (Win32 x64)</div><div class="flex items-center"><button aria-label="Minimize" class="h-8 w-11 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[14px]">minimize</span></button><button aria-label="Maximize" class="h-8 w-11 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[14px]">check_box_outline_blank</span></button><button aria-label="Close" class="h-8 w-11 flex items-center justify-center text-on-surface-variant hover:bg-error hover:text-on-error transition-colors" type="button"><span class="material-symbols-outlined text-[14px]">close</span></button></div></div><div class="h-10 px-space-md bg-surface-container-lowest flex items-center justify-between gap-space-md"><div class="flex items-center gap-space-xs"><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px] text-primary">sync</span><span class="font-label-md text-label-md">Fetch</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px] text-primary">arrow_downward</span><span class="font-label-md text-label-md">Pull</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px] text-primary">arrow_upward</span><span class="font-label-md text-label-md">Push</span></button><div class="h-4 w-px bg-outline-variant/40 mx-space-xs"></div><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">archive</span><span class="font-label-md text-label-md">Stash</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">unarchive</span><span class="font-label-md text-label-md">Pop</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">call_split</span><span class="font-label-md text-label-md">Branch</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">label</span><span class="font-label-md text-label-md">Tag</span></button><div class="h-4 w-px bg-outline-variant/40 mx-space-xs"></div><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">terminal</span><span class="font-label-md text-label-md">Terminal</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">folder</span><span class="font-label-md text-label-md">Explorer</span></button></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs bg-surface-container-low px-space-md py-space-xs rounded-lg"><span class="material-symbols-outlined text-[14px] text-tertiary">cloud_done</span><span class="font-code-sm text-code-sm text-on-surface-variant">origin/main</span><span class="font-code-sha text-code-sha text-on-surface-variant bg-surface-container px-space-xs rounded">up-to-date</span></div><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div><div class="h-10 px-space-md bg-surface-container-low flex items-center justify-between"><nav class="flex items-center gap-space-xs" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a aria-current="page" class="px-space-md py-space-xs transition-colors bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm" data-path="commit-graph" href="#">Commit Graph</a><a class="px-space-md py-space-xs font-title-sm text-title-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="staging-diff" href="#">Staging &amp; Working Tree</a><a class="px-space-md py-space-xs font-title-sm text-title-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" data-path="merge-resolver" href="#">Merge Conflict Resolver</a></nav><div class="flex items-center gap-space-xs"><div class="flex items-center bg-surface-container-lowest px-space-md py-space-xs rounded-lg shadow-sm"><span class="material-symbols-outlined text-[15px] text-outline mr-space-xs">search</span><span class="font-label-md text-label-md text-outline">Filter commits, files, tags (Ctrl+F)</span></div></div></div></header><aside class="fixed left-0 top-28 bottom-6 w-60 bg-surface-container-low z-30 flex flex-col p-space-xs overflow-y-auto"><div class="py-space-xs px-space-sm"><div class="flex items-center justify-between text-on-surface-variant hover:text-on-surface py-space-xs cursor-pointer"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[14px]">expand_more</span><span class="font-label-sm text-label-sm uppercase tracking-wider text-outline">Local Branches</span></div><span class="font-code-sm text-code-sm text-outline">5</span></div><div class="pl-space-md flex flex-col gap-0.5"><div class="flex items-center justify-between px-space-sm py-space-xs rounded-lg bg-surface-container text-primary font-title-sm text-title-sm"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px]">check</span><span>main</span></div><span class="font-code-sha text-code-sha px-space-xs bg-surface-container-high rounded text-on-surface-variant">HEAD</span></div><div class="flex items-center justify-between px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px] opacity-0">check</span><span>feat/monorepo-pipeline</span></div><span class="font-code-sm text-code-sm text-outline">↑1</span></div><div class="flex items-center justify-between px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px] opacity-0">check</span><span>fix/hydration-mismatch</span></div></div><div class="flex items-center justify-between px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[15px] opacity-0">check</span><span>release/v2.4.0</span></div></div></div></div><div class="py-space-xs px-space-sm"><div class="flex items-center justify-between text-on-surface-variant hover:text-on-surface py-space-xs cursor-pointer"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[14px]">expand_more</span><span class="font-label-sm text-label-sm uppercase tracking-wider text-outline">Remotes (origin)</span></div><span class="font-code-sm text-code-sm text-outline">4</span></div><div class="pl-space-md flex flex-col gap-0.5"><div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><span class="material-symbols-outlined text-[14px] text-outline">cloud</span><span>origin/main</span></div><div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface cursor-pointer font-body-sm text-body-sm"><span class="material-symbols-outlined text-[14px] text-outline">cloud</span><span>origin/dev</span></div></div></div><div class="py-space-xs px-space-sm"><div class="flex items-center justify-between text-on-surface-variant hover:text-on-surface py-space-xs cursor-pointer"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[14px]">expand_more</span><span class="font-label-sm text-label-sm uppercase tracking-wider text-outline">Tags</span></div><span class="font-code-sm text-code-sm text-outline">12</span></div></div><div class="py-space-xs px-space-sm"><div class="flex items-center justify-between text-on-surface-variant hover:text-on-surface py-space-xs cursor-pointer"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-[14px]">expand_more</span><span class="font-label-sm text-label-sm uppercase tracking-wider text-outline">Stashes</span></div><span class="font-code-sm text-code-sm text-outline">2</span></div></div></aside><div class="pl-60"><main class="relative pt-28 pb-6 w-full px-space-md bg-surface"><div class="flex flex-col w-full h-[calc(100vh-142px)] overflow-hidden text-on-surface select-none">
+<!-- Top Section: Filter Toolbar + High Density Interactive Commit DAG Graph -->
+<div class="flex flex-col h-[48%] bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden mb-space-sm">
+<!-- Filter Control Bar -->
+<div class="h-9 px-space-md bg-surface-container-low flex items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm flex-1 min-w-0">
+<!-- Branch Selector Dropdown -->
+<div class="relative group">
+<button class="h-6 px-space-sm bg-surface-container-lowest rounded-lg flex items-center gap-space-xs text-on-surface hover:bg-surface-container-high transition-colors shadow-sm" type="button">
+<span class="material-symbols-outlined text-[14px] text-primary">call_split</span>
+<span class="font-title-sm text-title-sm font-semibold">All Branches (14)</span>
+<span class="material-symbols-outlined text-[13px] text-outline">expand_more</span>
+</button>
+</div>
+<!-- Author Filter -->
+<div class="relative group">
+<button class="h-6 px-space-sm bg-surface-container-lowest rounded-lg flex items-center gap-space-xs text-on-surface-variant hover:bg-surface-container-high transition-colors shadow-sm" type="button">
+<span class="material-symbols-outlined text-[14px]">person_outline</span>
+<span class="font-label-md text-label-md">All Authors</span>
+<span class="material-symbols-outlined text-[13px] text-outline">expand_more</span>
+</button>
+</div>
+<!-- Date Range Filter -->
+<div class="relative group">
+<button class="h-6 px-space-sm bg-surface-container-lowest rounded-lg flex items-center gap-space-xs text-on-surface-variant hover:bg-surface-container-high transition-colors shadow-sm" type="button">
+<span class="material-symbols-outlined text-[14px]">date_range</span>
+<span class="font-label-md text-label-md">Last 30 Days</span>
+<span class="material-symbols-outlined text-[13px] text-outline">expand_more</span>
+</button>
+</div>
+<div class="h-4 w-px bg-outline-variant/30"></div>
+<!-- Regex Filter Search -->
+<div class="flex items-center flex-1 max-w-sm h-6 bg-surface-container-lowest rounded-lg px-space-sm shadow-sm">
+<span class="material-symbols-outlined text-[14px] text-outline mr-space-xs">filter_alt</span>
+<input class="w-full bg-transparent font-code-sm text-code-sm text-on-surface outline-none placeholder:text-outline/70" placeholder="Filter commit, sha, or path (e.g. ^fix\(core\))" type="text">
+<span class="font-code-sm text-code-sm px-1 rounded bg-surface-container-high text-primary font-bold ml-1 cursor-pointer hover:bg-surface-container-highest" title="Toggle Regex Mode">.*</span>
+</div>
+</div>
+<!-- Quick Graph Layout Options -->
+<div class="flex items-center gap-space-xs">
+<button class="w-6 h-6 rounded flex items-center justify-center bg-surface-container-high text-primary" title="Compact DAG View" type="button">
+<span class="material-symbols-outlined text-[15px]">reorder</span>
+</button>
+<button class="w-6 h-6 rounded flex items-center justify-center text-on-surface-variant hover:bg-surface-container" title="Show Signatures" type="button">
+<span class="material-symbols-outlined text-[15px]">verified_user</span>
+</button>
+<button class="w-6 h-6 rounded flex items-center justify-center text-on-surface-variant hover:bg-surface-container" title="Reflog / Stash Markers" type="button">
+<span class="material-symbols-outlined text-[15px]">bookmarks</span>
+</button>
+<span class="font-code-sm text-code-sm text-outline ml-space-xs">248 commits</span>
+</div>
+</div>
+<!-- Commit Graph Table Header -->
+<div class="h-6 bg-surface-container px-space-md grid grid-cols-12 items-center text-outline font-label-sm text-label-sm uppercase tracking-wider">
+<div class="col-span-1 flex items-center">Graph</div>
+<div class="col-span-6 flex items-center pl-1">Description &amp; Ref Badges</div>
+<div class="col-span-2 flex items-center">Author</div>
+<div class="col-span-2 flex items-center">Date</div>
+<div class="col-span-1 flex items-center justify-end pr-space-xs">Commit SHA</div>
+</div>
+<!-- Commit Graph Table Body -->
+<div class="flex-1 overflow-y-auto divide-y-0" id="commit-graph-list">
+<!-- ROW 1 (Selected / Head) -->
+<div class="h-7 px-space-md grid grid-cols-12 items-center bg-surface-container-low hover:bg-surface-container transition-colors cursor-pointer group shadow-[inset_3px_0_0_#006194]">
+<!-- DAG Column -->
+<div class="col-span-1 flex items-center h-full relative">
+<svg class="w-full h-full" fill="none" viewBox="0 0 80 28">
+<!-- Blue main line -->
+<line stroke="#006194" stroke-width="2" x1="16" x2="16" y1="0" y2="28"></line>
+<circle cx="16" cy="14" fill="#006194" r="4.5" stroke="#ffffff" stroke-width="1.5"></circle>
+<!-- Purple feat line running alongside -->
+<line stroke="#712ae2" stroke-width="2" x1="36" x2="36" y1="0" y2="28"></line>
+</svg>
+</div>
+<!-- Description -->
+<div class="col-span-6 flex items-center gap-space-xs min-w-0 pr-space-md">
+<span class="px-1.5 py-0.5 rounded bg-primary text-on-primary font-code-sm text-code-sm font-semibold tracking-wide">HEAD</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-highest text-primary font-code-sm text-code-sm font-semibold">main</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-code-sm text-code-sm">origin/main</span>
+<span class="font-title-sm text-title-sm text-on-surface font-semibold truncate">feat(compiler): optimize AST node reconciliation and memory pooling</span>
+</div>
+<!-- Author -->
+<div class="col-span-2 flex items-center gap-space-xs min-w-0">
+<div class="w-4 h-4 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-label-sm text-label-sm font-bold">AC</div>
+<span class="font-body-sm text-body-sm text-on-surface truncate">Alex Chen</span>
+</div>
+<!-- Date -->
+<div class="col-span-2 font-body-sm text-body-sm text-on-surface-variant truncate">
+          Today at 14:32
+        </div>
+<!-- SHA -->
+<div class="col-span-1 flex items-center justify-end font-code-sha text-code-sha text-primary pr-space-xs font-semibold">
+          7f8c92a
+        </div>
+</div>
+<!-- ROW 2 (Merge Node) -->
+<div class="h-7 px-space-md grid grid-cols-12 items-center hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="col-span-1 flex items-center h-full relative">
+<svg class="w-full h-full" fill="none" viewBox="0 0 80 28">
+<!-- Curve purple into blue -->
+<path d="M 36 0 L 36 6 Q 36 14 16 14" stroke="#712ae2" stroke-width="2"></path>
+<line stroke="#006194" stroke-width="2" x1="16" x2="16" y1="0" y2="28"></line>
+<circle cx="16" cy="14" fill="#ffffff" r="4" stroke="#006194" stroke-width="2"></circle>
+</svg>
+</div>
+<div class="col-span-6 flex items-center gap-space-xs min-w-0 pr-space-md">
+<span class="px-1.5 py-0.5 rounded bg-secondary-fixed text-on-secondary-fixed font-code-sm text-code-sm font-medium">feat/v8-engine</span>
+<span class="font-body-sm text-body-sm text-on-surface truncate">Merge branch 'feat/v8-engine' into main</span>
+</div>
+<div class="col-span-2 flex items-center gap-space-xs min-w-0">
+<div class="w-4 h-4 rounded-full bg-secondary text-on-secondary flex items-center justify-center font-label-sm text-label-sm font-bold">MK</div>
+<span class="font-body-sm text-body-sm text-on-surface truncate">Marcus Kane</span>
+</div>
+<div class="col-span-2 font-body-sm text-body-sm text-on-surface-variant truncate">
+          Yesterday 19:10
+        </div>
+<div class="col-span-1 flex items-center justify-end font-code-sha text-code-sha text-outline pr-space-xs">
+          e41a0b3
+        </div>
+</div>
+<!-- ROW 3 (Feature Branch commit) -->
+<div class="h-7 px-space-md grid grid-cols-12 items-center hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="col-span-1 flex items-center h-full relative">
+<svg class="w-full h-full" fill="none" viewBox="0 0 80 28">
+<line stroke="#006194" stroke-width="2" x1="16" x2="16" y1="0" y2="28"></line>
+<line stroke="#712ae2" stroke-width="2" x1="36" x2="36" y1="0" y2="28"></line>
+<circle cx="36" cy="14" fill="#712ae2" r="3.5"></circle>
+</svg>
+</div>
+<div class="col-span-6 flex items-center gap-space-xs min-w-0 pr-space-md">
+<span class="font-body-sm text-body-sm text-on-surface truncate">perf(pipeline): parallelize hydration and code splitting chunks</span>
+</div>
+<div class="col-span-2 flex items-center gap-space-xs min-w-0">
+<div class="w-4 h-4 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-label-sm text-label-sm font-bold">AC</div>
+<span class="font-body-sm text-body-sm text-on-surface truncate">Alex Chen</span>
+</div>
+<div class="col-span-2 font-body-sm text-body-sm text-on-surface-variant truncate">
+          Yesterday 16:45
+        </div>
+<div class="col-span-1 flex items-center justify-end font-code-sha text-code-sha text-outline pr-space-xs">
+          9b22ca8
+        </div>
+</div>
+<!-- ROW 4 (Green Release Branch with Tag) -->
+<div class="h-7 px-space-md grid grid-cols-12 items-center hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="col-span-1 flex items-center h-full relative">
+<svg class="w-full h-full" fill="none" viewBox="0 0 80 28">
+<line stroke="#006194" stroke-width="2" x1="16" x2="16" y1="0" y2="28"></line>
+<!-- Branch out green -->
+<path d="M 16 14 Q 26 14 56 28" stroke="#006b2c" stroke-width="2"></path>
+<circle cx="16" cy="14" fill="#006194" r="4"></circle>
+</svg>
+</div>
+<div class="col-span-6 flex items-center gap-space-xs min-w-0 pr-space-md">
+<span class="px-1.5 py-0.5 rounded bg-tertiary-fixed text-on-tertiary-fixed font-code-sm text-code-sm font-medium flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[11px]">label</span>v2.3.9
+          </span>
+<span class="font-body-sm text-body-sm text-on-surface truncate">chore(release): bump runtime bundles and update manifest integrity</span>
+</div>
+<div class="col-span-2 flex items-center gap-space-xs min-w-0">
+<div class="w-4 h-4 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center font-label-sm text-label-sm font-bold">SL</div>
+<span class="font-body-sm text-body-sm text-on-surface truncate">Sarah Lindqvist</span>
+</div>
+<div class="col-span-2 font-body-sm text-body-sm text-on-surface-variant truncate">
+          Oct 24, 2024
+        </div>
+<div class="col-span-1 flex items-center justify-end font-code-sha text-code-sha text-outline pr-space-xs">
+          3a87f12
+        </div>
+</div>
+<!-- ROW 5 (Bugfix branch) -->
+<div class="h-7 px-space-md grid grid-cols-12 items-center hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="col-span-1 flex items-center h-full relative">
+<svg class="w-full h-full" fill="none" viewBox="0 0 80 28">
+<line stroke="#006194" stroke-width="2" x1="16" x2="16" y1="0" y2="28"></line>
+<line stroke="#006b2c" stroke-width="2" x1="56" x2="56" y1="0" y2="28"></line>
+<circle cx="56" cy="14" fill="#006b2c" r="3.5"></circle>
+</svg>
+</div>
+<div class="col-span-6 flex items-center gap-space-xs min-w-0 pr-space-md">
+<span class="px-1.5 py-0.5 rounded bg-error-container text-on-error-container font-code-sm text-code-sm font-medium">fix/token-race</span>
+<span class="font-body-sm text-body-sm text-on-surface truncate">fix(auth): prevent deadlock during background token refresh token exchange</span>
+</div>
+<div class="col-span-2 flex items-center gap-space-xs min-w-0">
+<div class="w-4 h-4 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-label-sm text-label-sm font-bold">DR</div>
+<span class="font-body-sm text-body-sm text-on-surface truncate">David Ross</span>
+</div>
+<div class="col-span-2 font-body-sm text-body-sm text-on-surface-variant truncate">
+          Oct 23, 2024
+        </div>
+<div class="col-span-1 flex items-center justify-end font-code-sha text-code-sha text-outline pr-space-xs">
+          c1840dd
+        </div>
+</div>
+<!-- ROW 6 -->
+<div class="h-7 px-space-md grid grid-cols-12 items-center hover:bg-surface-container-low transition-colors cursor-pointer group">
+<div class="col-span-1 flex items-center h-full relative">
+<svg class="w-full h-full" fill="none" viewBox="0 0 80 28">
+<line stroke="#006194" stroke-width="2" x1="16" x2="16" y1="0" y2="28"></line>
+<circle cx="16" cy="14" fill="#006194" r="3.5"></circle>
+</svg>
+</div>
+<div class="col-span-6 flex items-center gap-space-xs min-w-0 pr-space-md">
+<span class="font-body-sm text-body-sm text-on-surface truncate">refactor(store): migrate active state subscriptions to atomic signals</span>
+</div>
+<div class="col-span-2 flex items-center gap-space-xs min-w-0">
+<div class="w-4 h-4 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-label-sm text-label-sm font-bold">AC</div>
+<span class="font-body-sm text-body-sm text-on-surface truncate">Alex Chen</span>
+</div>
+<div class="col-span-2 font-body-sm text-body-sm text-on-surface-variant truncate">
+          Oct 22, 2024
+        </div>
+<div class="col-span-1 flex items-center justify-end font-code-sha text-code-sha text-outline pr-space-xs">
+          65a004f
+        </div>
+</div>
+</div>
+</div>
+<!-- Horizontal Splitter Bar (Visual Handle like Windows 11 Desktop Fork) -->
+<div class="h-2 flex items-center justify-center cursor-row-resize hover:bg-surface-container transition-colors group relative">
+<div class="w-12 h-1 rounded-full bg-outline-variant/60 group-hover:bg-primary transition-colors"></div>
+</div>
+<!-- Bottom Section: Dual-Panel Commit Inspector -->
+<div class="flex-1 flex gap-space-sm min-h-0 overflow-hidden">
+<!-- Left Inspector Panel: Commit Metadata & Changed Files List -->
+<div class="w-5/12 bg-surface-container-lowest rounded-xl shadow-sm flex flex-col overflow-hidden">
+<!-- Commit Header Card -->
+<div class="p-space-md bg-surface-container-low flex flex-col gap-space-xs">
+<!-- Title & Action Toolbar -->
+<div class="flex items-start justify-between gap-space-sm">
+<div class="min-w-0 flex-1">
+<h2 class="font-headline-sm text-headline-sm text-on-surface leading-tight font-semibold truncate">
+              feat(compiler): optimize AST node reconciliation and memory pooling
+            </h2>
+</div>
+<!-- Inspector Quick Action Buttons -->
+<div class="flex items-center gap-1 shrink-0">
+<button class="h-6 px-space-xs rounded bg-surface-container-lowest hover:bg-surface-container text-on-surface-variant hover:text-on-surface shadow-sm flex items-center gap-1" title="Cherry-Pick Commit" type="button">
+<span class="material-symbols-outlined text-[14px] text-primary">content_cut</span>
+<span class="font-label-sm text-label-sm font-medium">Cherry-Pick</span>
+</button>
+<button class="h-6 px-space-xs rounded bg-surface-container-lowest hover:bg-surface-container text-on-surface-variant hover:text-on-surface shadow-sm flex items-center gap-1" title="Revert Changes" type="button">
+<span class="material-symbols-outlined text-[14px]">undo</span>
+<span class="font-label-sm text-label-sm font-medium">Revert</span>
+</button>
+<button class="h-6 w-6 rounded bg-surface-container-lowest hover:bg-surface-container text-on-surface-variant flex items-center justify-center shadow-sm" title="Create Branch Here" type="button">
+<span class="material-symbols-outlined text-[14px]">call_split</span>
+</button>
+<button class="h-6 w-6 rounded bg-surface-container-lowest hover:bg-surface-container text-on-surface-variant flex items-center justify-center shadow-sm" title="Create Tag" type="button">
+<span class="material-symbols-outlined text-[14px]">label</span>
+</button>
+</div>
+</div>
+<!-- Extended Message Snippet -->
+<p class="font-code-sm text-code-sm text-on-surface-variant line-clamp-2">
+          Pre-allocates typed node pools before traversing macro expansions. Reduces garbage collection pressure by 42% on synthetic benchmark test suites.
+        </p>
+<!-- Author, GPG, SHA, Parents Row -->
+<div class="flex items-center justify-between pt-space-xs mt-space-xs bg-surface-container-lowest p-space-xs rounded-lg">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-6 h-6 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-label-md text-label-md font-bold">
+              AC
+            </div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<span class="font-title-sm text-title-sm font-semibold text-on-surface">Alex Chen</span>
+<span class="inline-flex items-center gap-0.5 px-1 py-0.2 rounded bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm font-semibold">
+<span class="material-symbols-outlined text-[11px]">verified</span>GPG Verified
+                </span>
+</div>
+<span class="font-label-sm text-label-sm text-outline">alex.chen@pulse.internal • Authored 2 hours ago</span>
+</div>
+</div>
+<div class="flex flex-col items-end gap-0.5 font-code-sm text-code-sm">
+<div class="flex items-center gap-space-xs">
+<span class="text-outline">SHA:</span>
+<span class="font-code-sha text-code-sha text-primary bg-surface-container px-1 rounded font-bold">7f8c92a</span>
+<button class="text-outline hover:text-primary" title="Copy Hash" type="button">
+<span class="material-symbols-outlined text-[12px]">content_copy</span>
+</button>
+</div>
+<div class="flex items-center gap-space-xs text-outline text-[10px]">
+<span>Parent:</span>
+<span class="font-code-sha text-code-sha text-on-surface-variant hover:underline cursor-pointer">e41a0b3</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Changed Files Section Header -->
+<div class="h-7 px-space-md bg-surface-container flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="font-label-sm text-label-sm uppercase tracking-wider font-semibold text-outline">Changed Files</span>
+<span class="font-code-sm text-code-sm px-1.5 py-0.2 rounded-full bg-surface-container-high text-on-surface font-semibold">4</span>
+</div>
+<div class="flex items-center gap-space-sm">
+<!-- Diff Stats Total -->
+<div class="flex items-center gap-1 font-code-sm text-code-sm font-semibold">
+<span class="text-tertiary font-bold">+120</span>
+<span class="text-error font-bold">-14</span>
+</div>
+<!-- Tree / Flat View Toggle -->
+<div class="flex items-center bg-surface-container-lowest p-0.5 rounded shadow-sm">
+<button class="w-5 h-5 flex items-center justify-center rounded text-outline hover:text-on-surface" title="Tree View" type="button">
+<span class="material-symbols-outlined text-[13px]">account_tree</span>
+</button>
+<button class="w-5 h-5 flex items-center justify-center rounded bg-surface-container-high text-primary" title="Flat List View" type="button">
+<span class="material-symbols-outlined text-[13px]">list</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Files List (Flat Mode) -->
+<div class="flex-1 overflow-y-auto p-space-xs flex flex-col gap-0.5" id="changed-files-tree">
+<!-- Selected File -->
+<div class="h-7 px-space-sm flex items-center justify-between rounded-lg bg-surface-container-high text-on-surface cursor-pointer shadow-sm">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-[15px] text-primary">javascript</span>
+<span class="font-code-sm text-code-sm font-semibold text-on-surface truncate">src/compiler/ast-pool.ts</span>
+</div>
+<div class="flex items-center gap-space-xs shrink-0 font-code-sm text-code-sm">
+<span class="px-1 rounded bg-tertiary-fixed text-on-tertiary-fixed font-bold">+84</span>
+<span class="px-1 rounded bg-error-container text-on-error-container font-bold">-0</span>
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+</div>
+</div>
+<!-- File 2 -->
+<div class="h-7 px-space-sm flex items-center justify-between rounded-lg hover:bg-surface-container-low text-on-surface cursor-pointer transition-colors">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-[15px] text-outline">code</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant truncate">src/compiler/reconciler.ts</span>
+</div>
+<div class="flex items-center gap-space-xs shrink-0 font-code-sm text-code-sm">
+<span class="text-tertiary font-bold">+36</span>
+<span class="text-error font-bold">-14</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+</div>
+</div>
+<!-- File 3 -->
+<div class="h-7 px-space-sm flex items-center justify-between rounded-lg hover:bg-surface-container-low text-on-surface cursor-pointer transition-colors">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-[15px] text-outline">data_object</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant truncate">tests/benchmarks/pooling.bench.ts</span>
+</div>
+<div class="flex items-center gap-space-xs shrink-0 font-code-sm text-code-sm">
+<span class="text-tertiary font-bold">+18</span>
+<span class="text-outline font-bold">-0</span>
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+</div>
+</div>
+<!-- File 4 -->
+<div class="h-7 px-space-sm flex items-center justify-between rounded-lg hover:bg-surface-container-low text-on-surface cursor-pointer transition-colors">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-[15px] text-outline">settings</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant truncate">package.json</span>
+</div>
+<div class="flex items-center gap-space-xs shrink-0 font-code-sm text-code-sm">
+<span class="text-tertiary font-bold">+1</span>
+<span class="text-error font-bold">-1</span>
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+</div>
+</div>
+</div>
+<!-- Left Panel Bottom Bar: Open External Actions -->
+<div class="h-7 px-space-md bg-surface-container-low flex items-center justify-between">
+<button class="flex items-center gap-space-xs text-on-surface-variant hover:text-primary transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">terminal</span>
+<span class="font-label-sm text-label-sm font-semibold">Open in VSCode</span>
+</button>
+<button class="flex items-center gap-space-xs text-on-surface-variant hover:text-on-surface transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">folder</span>
+<span class="font-label-sm text-label-sm font-medium">Show in Explorer</span>
+</button>
+</div>
+</div>
+<!-- Right Inspector Panel: High Fidelity Diff Viewer -->
+<div class="w-7/12 bg-surface-container-lowest rounded-xl shadow-sm flex flex-col overflow-hidden">
+<!-- Diff Viewer Header Bar -->
+<div class="h-8 px-space-md bg-surface-container-low flex items-center justify-between">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-[15px] text-primary">difference</span>
+<span class="font-code-sm text-code-sm font-bold text-on-surface truncate">src/compiler/ast-pool.ts</span>
+<span class="font-code-sm text-code-sm text-outline">(TypeScript • +84 lines)</span>
+</div>
+<!-- Diff Display Mode Toggles -->
+<div class="flex items-center gap-space-xs">
+<!-- Ignore Whitespace -->
+<button class="h-6 px-1.5 rounded bg-surface-container-lowest hover:bg-surface-container text-on-surface-variant flex items-center gap-1 shadow-sm" title="Ignore Whitespace changes" type="button">
+<span class="material-symbols-outlined text-[13px]">space_bar</span>
+<span class="font-label-sm text-label-sm">No WS</span>
+</button>
+<!-- Split vs Unified Toggle -->
+<div class="flex items-center bg-surface-container-lowest p-0.5 rounded shadow-sm">
+<button class="px-2 py-0.5 rounded bg-surface-container-high text-primary font-label-sm text-label-sm font-bold" type="button">
+              Unified
+            </button>
+<button class="px-2 py-0.5 rounded text-outline hover:text-on-surface font-label-sm text-label-sm" type="button">
+              Split
+            </button>
+</div>
+<!-- Staging / Stage Hunk button -->
+<button class="h-6 px-space-sm rounded bg-primary text-on-primary font-label-md text-label-md font-semibold hover:bg-primary-container transition-colors shadow-sm flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[13px]">file_copy</span>
+<span>Raw File</span>
+</button>
+</div>
+</div>
+<!-- Diff Content Area with Syntax Highlighting -->
+<div class="flex-1 overflow-auto bg-surface-container-lowest font-code-sm text-code-sm leading-relaxed">
+<!-- Hunk Header 1 -->
+<div class="px-space-md py-0.5 bg-surface-container text-primary font-bold flex items-center justify-between select-text">
+<span>@@ -0,0 +1,18 @@ export class NodeMemoryPool<t></t></span>
+<span class="text-outline font-normal">Hunk 1 of 1</span>
+</div>
+<!-- Line 1: Added import -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">1</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre">import { ASTNode, NodeKind, Allocator } from <span class="text-primary">'@pulse/parser'</span>;</div>
+</div>
+<!-- Line 2: Added import -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">2</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre">import { SlabCache } from <span class="text-primary">'./slab-cache'</span>;</div>
+</div>
+<!-- Line 3: Empty addition -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">3</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"></div>
+</div>
+<!-- Line 4: Export statement -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">4</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"><span class="text-secondary font-bold">export class</span> <span class="text-primary font-bold">NodeMemoryPool</span>&lt;<span class="text-tertiary font-semibold">T extends ASTNode</span>&gt; {</div>
+</div>
+<!-- Line 5: Member pool -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">5</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"> <span class="text-secondary font-bold">private readonly</span> slab: SlabCache;</div>
+</div>
+<!-- Line 6: Free list counter -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">6</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"> <span class="text-secondary font-bold">private</span> freeOffset: <span class="text-primary font-semibold">number</span> = <span class="text-primary-container font-semibold">0</span>;</div>
+</div>
+<!-- Line 7: Constructor -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">7</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"></div>
+</div>
+<!-- Line 8 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">8</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"> <span class="text-secondary font-bold">constructor</span>(<span class="text-on-surface">initialCapacity: <span class="text-primary font-semibold">number</span> = <span class="text-primary-container font-semibold">4096</span></span>) {</div>
+</div>
+<!-- Line 9 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">9</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"> <span class="text-secondary font-bold">this</span>.slab = <span class="text-secondary font-bold">new</span> SlabCache(initialCapacity * <span class="text-primary-container font-semibold">64</span>);</div>
+</div>
+<!-- Line 10 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">10</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre">  }</div>
+</div>
+<!-- Line 11: allocate method -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">11</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"></div>
+</div>
+<!-- Line 12 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">12</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"> <span class="text-secondary font-bold">public</span> <span class="text-tertiary font-semibold">allocate</span>(kind: <span class="text-primary font-semibold">NodeKind</span>): <span class="text-primary font-semibold">T</span> {</div>
+</div>
+<!-- Line 13 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">13</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"> <span class="text-secondary font-bold">const</span> node = <span class="text-secondary font-bold">this</span>.slab.pop() ?? <span class="text-secondary font-bold">new</span> ASTNode(kind);</div>
+</div>
+<!-- Line 14 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">14</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre">    node.kind = kind;</div>
+</div>
+<!-- Line 15 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">15</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre"> <span class="text-secondary font-bold">return</span> node <span class="text-secondary font-bold">as</span> <span class="text-primary font-semibold">T</span>;</div>
+</div>
+<!-- Line 16 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">16</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre">  }</div>
+</div>
+<!-- Line 17 -->
+<div class="flex items-stretch bg-tertiary-fixed/15 hover:bg-tertiary-fixed/25 transition-colors">
+<div class="w-8 py-0.5 text-right pr-2 text-outline bg-tertiary-fixed/30 select-none"></div>
+<div class="w-8 py-0.5 text-right pr-2 text-tertiary font-bold bg-tertiary-fixed/40 select-none">17</div>
+<div class="w-5 py-0.5 text-center text-tertiary font-bold select-none">+</div>
+<div class="flex-1 py-0.5 pl-2 font-code-sm text-code-sm text-on-surface whitespace-pre">}</div>
+</div>
+</div>
+<!-- Diff Status Line Footer -->
+<div class="h-6 px-space-md bg-surface-container flex items-center justify-between text-outline font-label-sm text-label-sm">
+<div class="flex items-center gap-space-md">
+<span>Encoding: UTF-8 with LF</span>
+<span>Tab Size: 2</span>
+<span>Diff Engine: LibGit2-Integrated</span>
+</div>
+<div class="flex items-center gap-space-xs text-primary font-semibold">
+<span class="material-symbols-outlined text-[13px]">check</span>
+<span>Ready to stage or cherry-pick</span>
+</div>
+</div>
+</div>
+</div>
+</div></main></div><footer class="fixed bottom-0 left-0 right-0 h-6 bg-surface-container z-40 px-space-md flex items-center justify-between text-on-surface-variant font-label-md text-label-md shadow-[0_-1px_4px_rgba(0,0,0,0.02)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs text-primary font-semibold"><span class="material-symbols-outlined text-[13px]">call_split</span><span>main</span></div><div class="flex items-center gap-space-xs font-code-sm text-code-sm text-on-surface-variant"><span>Ahead: 0</span><span>•</span><span>Behind: 0</span></div><div class="h-3 w-px bg-outline-variant/40"></div><div class="flex items-center gap-space-xs text-on-surface-variant"><span class="material-symbols-outlined text-[13px] text-tertiary">check</span><span>Working directory clean</span></div></div><div class="flex items-center gap-space-md"><span class="font-code-sm text-code-sm">UTF-8</span><span class="font-code-sm text-code-sm">LF</span><div class="h-3 w-px bg-outline-variant/40"></div><span class="font-code-sm text-code-sm">Git 2.45.2.windows.1</span></div></footer>
+
+</body></html>

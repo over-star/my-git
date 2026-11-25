@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: "Geist", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 16px;
+    color: #0b1c30;
+    background-color: #f8fafc;
+    overscroll-behavior: none;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.app-drag {
+  --wails-draggable: drag;
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* Precision Instrument thin scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
