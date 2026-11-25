@@ -27,6 +27,8 @@ interface SidebarProps {
   tags: TagInfo[];
   stashes: StashItem[];
   currentBranch: string;
+  activeHistoryBranch: string;
+  onInspectBranch: (name: string) => void;
   onCheckout: (name: string, isRemote: boolean) => void;
   onMerge: (name: string) => void;
   onRequestDeleteBranch: (name: string) => void;
@@ -51,6 +53,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tags,
   stashes,
   currentBranch,
+  activeHistoryBranch,
+  onInspectBranch,
   onCheckout,
   onMerge,
   onRequestDeleteBranch,
@@ -131,25 +135,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {openLocal && (
           <div className="pl-2 flex flex-col gap-0.5">
             {localBranches.map((b) => {
-              const isSelected = selectedBranch === b.fullName;
+              const isSelected =
+                selectedBranch === b.fullName || activeHistoryBranch === b.name;
               return (
                 <div
                   key={b.fullName}
-                  onClick={() => setSelectedBranch(b.fullName)}
+                  onClick={() => {
+                    setSelectedBranch(b.fullName);
+                    onInspectBranch(b.name);
+                  }}
                   onDoubleClick={() => {
                     if (!b.isCurrent) onCheckout(b.name, false);
                   }}
                   onContextMenu={(e) => openContextMenu(e, b)}
                   title={
                     b.isCurrent
-                      ? `Current branch: ${b.name} (Right-click for actions)`
-                      : `Double-click to switch to ${b.name} · Right-click for actions`
+                      ? `Current branch: ${b.name} · Click to view Commit Graph · Right-click for actions`
+                      : `Click to view Commit Graph · Double-click to checkout ${b.name} · Right-click for actions`
                   }
                   className={`group flex items-center justify-between px-2 py-1 rounded text-[12px] cursor-pointer transition-colors ${
                     b.isCurrent
-                      ? "bg-[#e0f2fe] text-[#0369a1] font-semibold"
+                      ? isSelected
+                        ? "bg-[#bae6fd] text-[#0369a1] font-semibold ring-1 ring-[#0284c7]"
+                        : "bg-[#e0f2fe] text-[#0369a1] font-semibold"
                       : isSelected
-                      ? "bg-[#dbeafe]/70 text-[#0b1c30] ring-1 ring-[#93c5fd]"
+                      ? "bg-[#dbeafe]/80 text-[#0b1c30] ring-1 ring-[#93c5fd] font-medium"
                       : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
                   }`}
                 >
@@ -163,10 +173,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1 shrink-0">
-                    {(b.ahead > 0 || b.behind > 0) && (
-                      <span className="font-mono text-[10px] text-[#64748b]">
-                        {b.ahead > 0 ? `↑${b.ahead}` : ""}
-                        {b.behind > 0 ? `↓${b.behind}` : ""}
+                    {b.ahead > 0 && (
+                      <span
+                        title={`${b.ahead} unpushed commit(s)`}
+                        className="px-1.5 py-0.2 rounded-full bg-[#0284c7] text-white font-mono text-[10px] font-semibold leading-tight"
+                      >
+                        ↑{b.ahead}
+                      </span>
+                    )}
+                    {b.behind > 0 && (
+                      <span
+                        title={`${b.behind} incoming commit(s) to pull`}
+                        className="px-1.5 py-0.2 rounded-full bg-[#fef3c7] border border-[#fde68a] text-[#b45309] font-mono text-[10px] font-semibold leading-tight"
+                      >
+                        ↓{b.behind}
                       </span>
                     )}
                     {b.isCurrent ? (
@@ -232,17 +252,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             ) : (
               remoteBranches.map((b) => {
-                const isSelected = selectedBranch === b.fullName;
+                const isSelected =
+                  selectedBranch === b.fullName || activeHistoryBranch === b.name;
                 return (
                   <div
                     key={b.fullName}
-                    onClick={() => setSelectedBranch(b.fullName)}
+                    onClick={() => {
+                      setSelectedBranch(b.fullName);
+                      onInspectBranch(b.name);
+                    }}
                     onDoubleClick={() => onCheckout(b.name, true)}
                     onContextMenu={(e) => openContextMenu(e, b)}
-                    title={`Double-click to checkout tracking branch for ${b.name} · Right-click for actions`}
+                    title={`Click to view Commit Graph · Double-click to checkout tracking branch for ${b.name} · Right-click for actions`}
                     className={`group flex items-center justify-between px-2 py-1 rounded text-[12px] cursor-pointer transition-colors ${
                       isSelected
-                        ? "bg-[#dbeafe]/70 text-[#0b1c30] ring-1 ring-[#93c5fd]"
+                        ? "bg-[#dbeafe]/80 text-[#0b1c30] ring-1 ring-[#93c5fd] font-medium"
                         : "text-[#475569] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
                     }`}
                   >
@@ -437,23 +461,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => {
               const b = ctxMenu.branch;
               setCtxMenu(null);
-              onRequestCreateBranch(b.name, true);
-            }}
-            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
-          >
-            <GitBranch className="w-3.5 h-3.5 text-[#0284c7]" />
-            <span>New Branch & Checkout...</span>
-          </button>
-
-          <button
-            onClick={() => {
-              const b = ctxMenu.branch;
-              setCtxMenu(null);
               onRequestCreateBranch(b.name, false);
             }}
             className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 text-[#64748b]" />
+            <GitBranch className="w-3.5 h-3.5 text-[#0284c7]" />
             <span>New Branch...</span>
           </button>
 

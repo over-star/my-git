@@ -89,10 +89,20 @@ func Push(ctx context.Context, loc RepoLocation) (OpResult, error) {
 	stdout, stderr, err := RunGit(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
+		code := ""
+		remotes, _ := ListRemotes(ctx, loc)
+		for _, r := range remotes {
+			if strings.HasPrefix(strings.ToLower(r.PushURL), "http://") ||
+				strings.HasPrefix(strings.ToLower(r.PushURL), "https://") {
+				code = "HTTPS_REMOTE"
+				break
+			}
+		}
 		return OpResult{
-			Success: false,
-			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
-			Output:  combined,
+			Success:   false,
+			Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			ErrorCode: code,
+			Output:    combined,
 		}, nil
 	}
 	msg := "Push completed"
@@ -100,6 +110,75 @@ func Push(ctx context.Context, loc RepoLocation) (OpResult, error) {
 		msg = fmt.Sprintf("Pushed and set upstream to %s", currentBranch)
 	}
 	return OpResult{Success: true, Message: msg, Output: combined}, nil
+}
+
+// ListRemotes returns configured git remotes and their fetch/push URLs.
+func ListRemotes(ctx context.Context, loc RepoLocation) ([]RemoteInfo, error) {
+	out, stderr, err := RunGit(ctx, loc, "remote", "-v")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list remotes: %s (%w)", strings.TrimSpace(stderr), err)
+	}
+	order := []string{}
+	byName := make(map[string]*RemoteInfo)
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		name, urlStr, kind := fields[0], fields[1], fields[2]
+		ri, ok := byName[name]
+		if !ok {
+			ri = &RemoteInfo{Name: name}
+			byName[name] = ri
+			order = append(order, name)
+		}
+		if strings.Contains(kind, "fetch") {
+			ri.FetchURL = urlStr
+		}
+		if strings.Contains(kind, "push") {
+			ri.PushURL = urlStr
+		}
+		low := strings.ToLower(urlStr)
+		if strings.HasPrefix(low, "git@") || strings.HasPrefix(low, "ssh://") {
+			ri.IsSSH = true
+		}
+	}
+	res := make([]RemoteInfo, 0, len(order))
+	for _, n := range order {
+		res = append(res, *byName[n])
+	}
+	return res, nil
+}
+
+// SetRemoteURL updates (or adds) a remote URL.
+func SetRemoteURL(ctx context.Context, loc RepoLocation, name, newURL string) (OpResult, error) {
+	name = strings.TrimSpace(name)
+	newURL = strings.TrimSpace(newURL)
+	if name == "" || newURL == "" {
+		return OpResult{Success: false, Message: "Remote name and URL are required"}, nil
+	}
+	// Check if remote exists
+	_, _, checkErr := RunGit(ctx, loc, "remote", "get-url", name)
+	var stdout, stderr string
+	var err error
+	if checkErr != nil {
+		stdout, stderr, err = RunGit(ctx, loc, "remote", "add", name, newURL)
+	} else {
+		stdout, stderr, err = RunGit(ctx, loc, "remote", "set-url", name, newURL)
+	}
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		return OpResult{
+			Success: false,
+			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			Output:  combined,
+		}, nil
+	}
+	return OpResult{
+		Success: true,
+		Message: fmt.Sprintf("Updated remote %s -> %s", name, newURL),
+		Output:  combined,
+	}, nil
 }
 
 // CloneRepo executes git clone --progress and streams progress events via callback.
@@ -125,16 +204,28 @@ func CloneRepo(ctx context.Context, cloneID, repoURL, targetParent, folderName s
 		hideWindow(mk)
 		_ = mk.Run()
 
+		sshCmd := resolveDefaultSSHCommand(ctx, parentLoc, true)
 		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", parentLoc.Distro, "--", "git", "clone", "--progress", repoURL, targetLinux)
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C.UTF-8", "WSLENV=GIT_TERMINAL_PROMPT/u:LC_ALL/u")
+		env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C.UTF-8")
+		wslEnv := "GIT_TERMINAL_PROMPT/u:LC_ALL/u"
+		if sshCmd != "" {
+			env = append(env, "GIT_SSH_COMMAND="+sshCmd)
+			wslEnv += ":GIT_SSH_COMMAND/u"
+		}
+		cmd.Env = append(env, "WSLENV="+wslEnv)
 	} else {
 		if err := os.MkdirAll(parentLoc.Path, 0o755); err != nil {
 			return RepoLocation{}, fmt.Errorf("failed to create parent directory: %w", err)
 		}
 		targetWin := filepath.Join(parentLoc.Path, folderName)
 		destLoc = ParseRepoLocation(targetWin)
+		sshCmd := resolveDefaultSSHCommand(ctx, parentLoc, true)
 		cmd = exec.CommandContext(ctx, "git", "clone", "--progress", repoURL, targetWin)
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C.UTF-8")
+		env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C.UTF-8")
+		if sshCmd != "" {
+			env = append(env, "GIT_SSH_COMMAND="+sshCmd)
+		}
+		cmd.Env = env
 	}
 	hideWindow(cmd)
 

@@ -116,6 +116,14 @@ export function ListBranches(repoPath: string): $CancellablePromise<git$0.Branch
     return $Call.ByID(196198533, repoPath);
 }
 
+export function ListRemotes(repoPath: string): $CancellablePromise<git$0.RemoteInfo[] | null> {
+    return $Call.ByID(2290322204, repoPath);
+}
+
+export function ListSSHKeys(repoPath: string, distroOverride: string): $CancellablePromise<git$0.SSHKeyInfo[] | null> {
+    return $Call.ByID(431600397, repoPath, distroOverride);
+}
+
 export function ListStashes(repoPath: string): $CancellablePromise<git$0.StashItem[] | null> {
     return $Call.ByID(2068009190, repoPath);
 }
@@ -188,6 +196,10 @@ export function SetApp(app: application$0.App | null): $CancellablePromise<void>
     return $Call.ByID(1890383270, app);
 }
 
+export function SetRemoteURL(repoPath: string, name: string, newURL: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(772338218, repoPath, name, newURL);
+}
+
 export function StageAll(repoPath: string): $CancellablePromise<void> {
     return $Call.ByID(4059387404, repoPath);
 }
@@ -210,6 +222,10 @@ export function StashPop(repoPath: string, ref: string): $CancellablePromise<git
 
 export function StashPush(repoPath: string, message: string, includeUntracked: boolean): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(903313074, repoPath, message, includeUntracked);
+}
+
+export function TestSSHConnection(repoPath: string, sshCommand: string, distroOverride: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(1903428893, repoPath, sshCommand, distroOverride);
 }
 
 export function ToggleMaximizeWindow(): $CancellablePromise<void> {

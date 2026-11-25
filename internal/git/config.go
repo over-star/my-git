@@ -3,6 +3,9 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -89,6 +92,8 @@ func readConfigScope(ctx context.Context, loc RepoLocation, scopeFlag string, sk
 			id.GPGSign = v
 		case "user.signingkey":
 			id.SigningKey = v
+		case "core.sshcommand":
+			id.SSHCommand = v
 		}
 	}
 	return id
@@ -129,6 +134,7 @@ func SaveGitConfig(ctx context.Context, upd GitConfigUpdate) (OpResult, error) {
 		{"pull.rebase", strings.TrimSpace(upd.PullRebase)},
 		{"commit.gpgsign", strings.TrimSpace(upd.GPGSign)},
 		{"user.signingkey", strings.TrimSpace(upd.SigningKey)},
+		{"core.sshCommand", strings.TrimSpace(upd.SSHCommand)},
 	}
 	if !isLocal {
 		pairs = append(pairs, struct {
@@ -174,4 +180,110 @@ func SaveGitConfig(ctx context.Context, upd GitConfigUpdate) (OpResult, error) {
 		Success: true,
 		Message: "Saved Git config to " + targetLabel,
 	}, nil
+}
+
+// ListSSHKeys discovers SSH private keys in Windows %USERPROFILE%\.ssh and optionally a WSL2 distro's ~/.ssh.
+func ListSSHKeys(ctx context.Context, distro string) []SSHKeyInfo {
+	var keys []SSHKeyInfo
+	ignored := map[string]bool{
+		"known_hosts": true, "known_hosts.old": true,
+		"config": true, "authorized_keys": true, "environment": true,
+	}
+
+	if home, err := os.UserHomeDir(); err == nil {
+		sshDir := filepath.Join(home, ".ssh")
+		if entries, err := os.ReadDir(sshDir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				name := e.Name()
+				if strings.HasSuffix(name, ".pub") || ignored[strings.ToLower(name)] {
+					continue
+				}
+				keys = append(keys, SSHKeyInfo{
+					Name:   name,
+					Path:   filepath.Join(sshDir, name),
+					Source: "windows",
+				})
+			}
+		}
+	}
+
+	if strings.TrimSpace(distro) != "" {
+		script := `for f in "$HOME/.ssh/"*; do
+  [ -f "$f" ] || continue
+  b=$(basename "$f")
+  case "$b" in *.pub|known_hosts*|config|authorized_keys) continue ;; esac
+  printf '%s\t%s\n' "$b" "$f"
+done`
+		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", strings.TrimSpace(distro), "--", "sh", "-c", script)
+		hideWindow(cmd)
+		if out, err := cmd.Output(); err == nil {
+			for _, line := range strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n") {
+				parts := strings.SplitN(strings.TrimSpace(line), "\t", 2)
+				if len(parts) == 2 && parts[0] != "" {
+					keys = append(keys, SSHKeyInfo{
+						Name:   parts[0],
+						Path:   parts[1],
+						Source: "wsl",
+					})
+				}
+			}
+		}
+	}
+	return keys
+}
+
+// TestSSHConnection tests SSH authentication against the repo's first remote (or git@github.com).
+func TestSSHConnection(ctx context.Context, repoPath, sshCommand, distro string) OpResult {
+	var loc RepoLocation
+	skipCD := true
+	targetURL := "git@github.com:octocat/Hello-World.git"
+
+	if strings.TrimSpace(repoPath) != "" {
+		loc = ParseRepoLocation(repoPath)
+		skipCD = false
+		if remotes, err := ListRemotes(ctx, loc); err == nil {
+			for _, r := range remotes {
+				u := r.PushURL
+				if u == "" {
+					u = r.FetchURL
+				}
+				if strings.HasPrefix(strings.ToLower(u), "git@") || strings.HasPrefix(strings.ToLower(u), "ssh://") {
+					targetURL = u
+					break
+				}
+			}
+		}
+	} else if strings.TrimSpace(distro) != "" {
+		loc = RepoLocation{IsWSL: true, Distro: strings.TrimSpace(distro)}
+	}
+
+	args := []string{}
+	if strings.TrimSpace(sshCommand) != "" {
+		args = append(args, "-c", "core.sshCommand="+strings.TrimSpace(sshCommand))
+	}
+	args = append(args, "ls-remote", targetURL, "HEAD")
+
+	var stdout, stderr string
+	var err error
+	if skipCD {
+		stdout, stderr, err = RunGitInDir(ctx, loc, args...)
+	} else {
+		stdout, stderr, err = RunGit(ctx, loc, args...)
+	}
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		return OpResult{
+			Success: false,
+			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			Output:  combined,
+		}
+	}
+	return OpResult{
+		Success: true,
+		Message: "SSH connection succeeded for " + targetURL,
+		Output:  combined,
+	}
 }

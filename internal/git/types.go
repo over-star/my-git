@@ -228,6 +228,22 @@ type GitIdentity struct {
 	PullRebase    string `json:"pullRebase"`
 	GPGSign       string `json:"gpgSign"` // "", "true", "false"
 	SigningKey    string `json:"signingKey"`
+	SSHCommand    string `json:"sshCommand"`
+}
+
+// SSHKeyInfo describes a discovered SSH private key file.
+type SSHKeyInfo struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Source string `json:"source"` // "windows" or "wsl"
+}
+
+// RemoteInfo describes a configured Git remote.
+type RemoteInfo struct {
+	Name     string `json:"name"`
+	FetchURL string `json:"fetchUrl"`
+	PushURL  string `json:"pushUrl"`
+	IsSSH    bool   `json:"isSsh"`
 }
 
 // GitConfigBundle returns local, global, and effective config for a repo or environment.
@@ -254,4 +270,5 @@ type GitConfigUpdate struct {
 	PullRebase    string `json:"pullRebase"`
 	GPGSign       string `json:"gpgSign"`
 	SigningKey    string `json:"signingKey"`
+	SSHCommand    string `json:"sshCommand"`
 }

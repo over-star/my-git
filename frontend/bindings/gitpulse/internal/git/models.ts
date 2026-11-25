@@ -200,6 +200,7 @@ export interface GitConfigUpdate {
     "pullRebase": string;
     "gpgSign": string;
     "signingKey": string;
+    "sshCommand": string;
 }
 
 /**
@@ -217,6 +218,7 @@ export interface GitIdentity {
      */
     "gpgSign": string;
     "signingKey": string;
+    "sshCommand": string;
 }
 
 /**
@@ -259,6 +261,16 @@ export interface RefBadge {
 }
 
 /**
+ * RemoteInfo describes a configured Git remote.
+ */
+export interface RemoteInfo {
+    "name": string;
+    "fetchUrl": string;
+    "pushUrl": string;
+    "isSsh": boolean;
+}
+
+/**
  * RepoLocation describes a Git repository on either Windows local filesystem or WSL2.
  */
 export interface RepoLocation {
@@ -296,6 +308,19 @@ export interface RepoStatus {
     "unstaged": FileStatus[] | null;
     "staged": FileStatus[] | null;
     "conflicted": FileStatus[] | null;
+}
+
+/**
+ * SSHKeyInfo describes a discovered SSH private key file.
+ */
+export interface SSHKeyInfo {
+    "name": string;
+    "path": string;
+
+    /**
+     * "windows" or "wsl"
+     */
+    "source": string;
 }
 
 /**

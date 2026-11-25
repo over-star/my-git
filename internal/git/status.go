@@ -135,6 +135,16 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 	}
 
 	st.MergeState, st.MergeBranch = detectMergeState(ctx, loc)
+
+	// If current branch has no upstream yet but repo has remotes, count unpushed commits
+	if st.Upstream == "" && !st.IsDetached && st.Branch != "" && st.HeadSHA != "" {
+		if rOut, _, rerr := RunGit(ctx, loc, "remote"); rerr == nil && strings.TrimSpace(rOut) != "" {
+			if cntOut, _, cerr := RunGit(ctx, loc, "rev-list", "--count", "HEAD", "--not", "--remotes"); cerr == nil {
+				st.Ahead, _ = strconv.Atoi(strings.TrimSpace(cntOut))
+			}
+		}
+	}
+
 	return st, nil
 }
 

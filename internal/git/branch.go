@@ -19,6 +19,12 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 		return nil, fmt.Errorf("failed to list branches: %s (%w)", strings.TrimSpace(stderr), err)
 	}
 
+	// Check if any remote exists so we can count unpushed commits for branches without upstream
+	hasRemotes := false
+	if rOut, _, rerr := RunGit(ctx, loc, "remote"); rerr == nil && strings.TrimSpace(rOut) != "" {
+		hasRemotes = true
+	}
+
 	var branches []BranchInfo
 	lines := strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n")
 	for _, line := range lines {
@@ -53,6 +59,11 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 		}
 		if m := behindRe.FindStringSubmatch(track); len(m) == 2 {
 			behind, _ = strconv.Atoi(m[1])
+		}
+		if !isRemote && upstream == "" && hasRemotes {
+			if cntOut, _, cerr := RunGit(ctx, loc, "rev-list", "--count", shortName, "--not", "--remotes"); cerr == nil {
+				ahead, _ = strconv.Atoi(strings.TrimSpace(cntOut))
+			}
 		}
 
 		branches = append(branches, BranchInfo{

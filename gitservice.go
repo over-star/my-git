@@ -325,6 +325,18 @@ func (s *GitService) Push(repoPath string) (git.OpResult, error) {
 	return git.Push(ctx, git.ParseRepoLocation(repoPath))
 }
 
+func (s *GitService) ListRemotes(repoPath string) ([]git.RemoteInfo, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.ListRemotes(ctx, git.ParseRepoLocation(repoPath))
+}
+
+func (s *GitService) SetRemoteURL(repoPath, name, newURL string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.SetRemoteURL(ctx, git.ParseRepoLocation(repoPath), name, newURL)
+}
+
 func (s *GitService) GetConflictFile(repoPath, relPath string) (git.ConflictFileContent, error) {
 	ctx, cancel := s.ctx()
 	defer cancel()
@@ -410,4 +422,23 @@ func (s *GitService) SaveGitConfig(upd git.GitConfigUpdate) (git.OpResult, error
 	ctx, cancel := s.ctx()
 	defer cancel()
 	return git.SaveGitConfig(ctx, upd)
+}
+
+func (s *GitService) ListSSHKeys(repoPath, distroOverride string) []git.SSHKeyInfo {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	distro := strings.TrimSpace(distroOverride)
+	if distro == "" && strings.TrimSpace(repoPath) != "" {
+		loc := git.ParseRepoLocation(repoPath)
+		if loc.IsWSL {
+			distro = loc.Distro
+		}
+	}
+	return git.ListSSHKeys(ctx, distro)
+}
+
+func (s *GitService) TestSSHConnection(repoPath, sshCommand, distroOverride string) git.OpResult {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.TestSSHConnection(ctx, repoPath, sshCommand, distroOverride)
 }

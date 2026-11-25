@@ -8,13 +8,23 @@ import {
   X,
   Save,
   RotateCcw,
+  KeyRound,
+  Link2,
 } from "lucide-react";
 import type {
   GitConfigBundle,
+  RemoteInfo,
   RepoLocation,
+  SSHKeyInfo,
   WSLDistro,
 } from "../../bindings/gitpulse/internal/git/models";
 import { GitService } from "../../bindings/gitpulse";
+
+export function httpsToSshUrl(url: string): string | null {
+  const m = url.trim().match(/^https?:\/\/([^/]+)\/(.+?)(?:\.git)?\/?$/i);
+  if (!m) return null;
+  return `git@${m[1]}:${m[2]}.git`;
+}
 
 interface GitConfigModalProps {
   open: boolean;
@@ -48,6 +58,15 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
   const [pullRebase, setPullRebase] = useState("");
   const [gpgSign, setGpgSign] = useState("");
   const [signingKey, setSigningKey] = useState("");
+  const [sshCommand, setSshCommand] = useState("");
+  const [sshKeys, setSshKeys] = useState<SSHKeyInfo[]>([]);
+  const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
+  const [remoteDrafts, setRemoteDrafts] = useState<Record<string, string>>({});
+  const [sshTestResult, setSshTestResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+  const [testingSsh, setTestingSsh] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -69,11 +88,22 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
   ) => {
     setLoading(true);
     try {
-      const b = await GitService.GetGitConfig(
-        repo?.path ?? "",
-        targetScope === "global" ? distroForGlobal : repo?.isWsl ? repo.distro : ""
-      );
+      const effectiveDistro =
+        targetScope === "global" ? distroForGlobal : repo?.isWsl ? repo.distro : "";
+      const [b, keys, rem] = await Promise.all([
+        GitService.GetGitConfig(repo?.path ?? "", effectiveDistro),
+        GitService.ListSSHKeys(repo?.path ?? "", effectiveDistro),
+        repo?.path ? GitService.ListRemotes(repo.path) : Promise.resolve([]),
+      ]);
       setBundle(b);
+      setSshKeys(keys ?? []);
+      const rList = rem ?? [];
+      setRemotes(rList);
+      const drafts: Record<string, string> = {};
+      for (const r of rList) {
+        drafts[r.name] = r.pushUrl || r.fetchUrl;
+      }
+      setRemoteDrafts(drafts);
       const src = targetScope === "local" ? b.local : b.global;
       setUserName(src.userName ?? "");
       setUserEmail(src.userEmail ?? "");
@@ -82,6 +112,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
       setPullRebase(src.pullRebase ?? "");
       setGpgSign(src.gpgSign ?? "");
       setSigningKey(src.signingKey ?? "");
+      setSshCommand(src.sshCommand ?? "");
     } catch (err) {
       onNotify("error", `Failed to load Git config: ${err}`);
     } finally {
@@ -91,6 +122,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
 
   useEffect(() => {
     if (!open) return;
+    setSshTestResult(null);
     loadConfig(scope, globalDistro);
   }, [open, scope, globalDistro, repo?.path]);
 
@@ -110,6 +142,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
         pullRebase,
         gpgSign,
         signingKey,
+        sshCommand,
       });
       if (res.success) {
         onSaved(res.message);
@@ -131,6 +164,50 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
     setPullRebase("");
     setGpgSign("");
     setSigningKey("");
+    setSshCommand("");
+  };
+
+  const buildSshCmdForKey = (k: SSHKeyInfo) => {
+    const slashPath = k.path.replace(/\\/g, "/");
+    if (isWSLActive && k.source === "windows") {
+      return `/mnt/c/Windows/System32/OpenSSH/ssh.exe -i "${k.path}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`;
+    }
+    if (!isWSLActive) {
+      return `ssh -i "${slashPath}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`;
+    }
+    return `ssh -i "${k.path}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`;
+  };
+
+  const handleSaveRemote = async (name: string, url: string) => {
+    if (!repo) return;
+    try {
+      const res = await GitService.SetRemoteURL(repo.path, name, url);
+      if (res.success) {
+        onNotify("success", res.message);
+        await loadConfig(scope, globalDistro);
+      } else {
+        onNotify("error", res.message || "Failed to update remote URL");
+      }
+    } catch (err) {
+      onNotify("error", String(err));
+    }
+  };
+
+  const handleTestSSH = async () => {
+    setTestingSsh(true);
+    setSshTestResult(null);
+    try {
+      const res = await GitService.TestSSHConnection(
+        scope === "local" ? repo?.path ?? "" : "",
+        sshCommand,
+        scope === "global" ? globalDistro : repo?.isWsl ? repo.distro : ""
+      );
+      setSshTestResult({ ok: res.success, msg: res.message });
+    } catch (err) {
+      setSshTestResult({ ok: false, msg: String(err) });
+    } finally {
+      setTestingSsh(false);
+    }
   };
 
   const isWSLActive =
@@ -380,6 +457,150 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* SSH Key / core.sshCommand */}
+              <div className="pt-2 border-t border-[#f1f5f9] flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1 text-[11px] font-semibold text-[#475569]">
+                    <KeyRound className="w-3 h-3 text-[#0284c7]" />
+                    SSH Authentication (core.sshCommand)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setSshCommand("")}
+                    className="text-[10px] text-[#0284c7] hover:underline cursor-pointer"
+                  >
+                    Use Default SSH Keys
+                  </button>
+                </div>
+                {sshKeys.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {sshKeys.map((k) => {
+                      const cmdStr = buildSshCmdForKey(k);
+                      const active = sshCommand === cmdStr;
+                      return (
+                        <button
+                          key={`${k.source}:${k.path}`}
+                          type="button"
+                          onClick={() => setSshCommand(cmdStr)}
+                          title={k.path}
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono border cursor-pointer transition-colors ${
+                            active
+                              ? "bg-[#e0f2fe] border-[#0284c7] text-[#0369a1] font-semibold"
+                              : "bg-[#f8fafc] border-[#e2e8f0] text-[#334155] hover:border-[#0284c7]"
+                          }`}
+                        >
+                          {k.source === "wsl" ? "WSL: " : "Win: "}
+                          {k.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={sshCommand}
+                    onChange={(e) => {
+                      setSshCommand(e.target.value);
+                      setSshTestResult(null);
+                    }}
+                    placeholder="Default (auto-uses ~/.ssh/id_*; WSL2 falls back to Windows OpenSSH if empty)"
+                    className="flex-1 px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[11px] font-mono outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={testingSsh}
+                    onClick={handleTestSSH}
+                    className="px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] hover:border-[#0284c7] text-[11px] font-medium text-[#0284c7] disabled:opacity-50 shrink-0 cursor-pointer"
+                  >
+                    {testingSsh ? "Testing..." : "Test SSH"}
+                  </button>
+                </div>
+                {sshTestResult && (
+                  <div
+                    className={`px-2.5 py-1.5 rounded text-[11px] font-mono border ${
+                      sshTestResult.ok
+                        ? "bg-[#f0fdf4] border-[#bbf7d0] text-[#15803d]"
+                        : "bg-[#fef2f2] border-[#fecaca] text-[#dc2626]"
+                    }`}
+                  >
+                    {sshTestResult.msg}
+                  </div>
+                )}
+              </div>
+
+              {/* Remotes (Local Repo Only) */}
+              {scope === "local" && repo && (
+                <div className="pt-2 border-t border-[#f1f5f9] flex flex-col gap-1.5">
+                  <label className="flex items-center gap-1 text-[11px] font-semibold text-[#475569]">
+                    <Link2 className="w-3 h-3 text-[#0284c7]" />
+                    Repository Remotes
+                  </label>
+                  {remotes.length === 0 ? (
+                    <div className="text-[11px] text-[#94a3b8]">
+                      No remotes configured.
+                    </div>
+                  ) : (
+                    remotes.map((r) => {
+                      const val = remoteDrafts[r.name] ?? "";
+                      const sshSuggestion = httpsToSshUrl(val);
+                      const isSsh =
+                        val.toLowerCase().startsWith("git@") ||
+                        val.toLowerCase().startsWith("ssh://");
+                      return (
+                        <div key={r.name} className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-1 rounded bg-[#f1f5f9] font-mono text-[11px] font-semibold text-[#0b1c30] shrink-0">
+                            {r.name}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold shrink-0 ${
+                              isSsh
+                                ? "bg-[#dcfce7] text-[#15803d]"
+                                : "bg-[#fef3c7] text-[#b45309]"
+                            }`}
+                          >
+                            {isSsh ? "SSH" : "HTTPS"}
+                          </span>
+                          <input
+                            type="text"
+                            value={val}
+                            onChange={(e) =>
+                              setRemoteDrafts((d) => ({
+                                ...d,
+                                [r.name]: e.target.value,
+                              }))
+                            }
+                            className="flex-1 px-2 py-1 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[11px] font-mono outline-none"
+                          />
+                          {sshSuggestion && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRemoteDrafts((d) => ({
+                                  ...d,
+                                  [r.name]: sshSuggestion,
+                                }));
+                                handleSaveRemote(r.name, sshSuggestion);
+                              }}
+                              className="px-2 py-1 rounded bg-[#f0f9ff] border border-[#bae6fd] hover:bg-[#e0f2fe] text-[#0369a1] text-[10px] font-medium shrink-0 cursor-pointer"
+                            >
+                              Switch to SSH
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleSaveRemote(r.name, val)}
+                            className="px-2 py-1 rounded bg-white border border-[#cbd5e1] hover:bg-[#f8fafc] text-[10px] font-medium text-[#334155] shrink-0 cursor-pointer"
+                          >
+                            Update
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
 
               {/* Effective Summary */}
               {bundle && (

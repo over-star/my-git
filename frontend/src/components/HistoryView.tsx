@@ -26,6 +26,8 @@ import { StatusBadge } from "./StatusBadge";
 interface HistoryViewProps {
   repo: RepoLocation;
   branches: BranchInfo[];
+  selectedBranch: string;
+  onSelectBranch: (branch: string) => void;
   refreshKey: number;
   externalSearch?: string;
   onCreateBranchFromCommit: (sha: string) => void;
@@ -39,12 +41,13 @@ const LANE_SPACING = 14;
 export const HistoryView: React.FC<HistoryViewProps> = ({
   repo,
   branches,
+  selectedBranch,
+  onSelectBranch,
   refreshKey,
   externalSearch,
   onCreateBranchFromCommit,
   onNotify,
 }) => {
-  const [selectedBranch, setSelectedBranch] = useState<string>("__ALL__");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -255,7 +258,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               <GitBranch className="w-3.5 h-3.5 text-[#0284c7] absolute left-2 pointer-events-none" />
               <select
                 value={selectedBranch}
-                onChange={(e) => setSelectedBranch(e.target.value)}
+                onChange={(e) => onSelectBranch(e.target.value)}
                 className="h-6 pl-7 pr-6 rounded bg-white border border-[#e2e8f0] text-[11px] font-medium text-[#0b1c30] outline-none focus:border-[#0284c7] appearance-none cursor-pointer"
               >
                 <option value="__ALL__">All Branches ({branches.length})</option>

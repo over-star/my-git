@@ -35,7 +35,7 @@ import { ChangesView } from "./components/ChangesView";
 import { HistoryView } from "./components/HistoryView";
 import { ConflictView } from "./components/ConflictView";
 import { RepoModal } from "./components/RepoModal";
-import { GitConfigModal } from "./components/GitConfigModal";
+import { GitConfigModal, httpsToSshUrl } from "./components/GitConfigModal";
 import {
   CheckoutConflictModal,
   CreateBranchModal,
@@ -59,6 +59,7 @@ export function App() {
   const [tabs, setTabs] = useState<RepoLocation[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("changes");
+  const [historyBranch, setHistoryBranch] = useState<string>("__ALL__");
 
   const [status, setStatus] = useState<RepoStatus | null>(null);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -106,6 +107,12 @@ export function App() {
     name: string;
     email: string;
   }>({ name: "", email: "" });
+  const [httpsRemotePrompt, setHttpsRemotePrompt] = useState<{
+    remoteName: string;
+    currentUrl: string;
+    sshUrl: string;
+    errorMessage: string;
+  } | null>(null);
 
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
 
@@ -114,7 +121,7 @@ export function App() {
     setToasts((prev) => [...prev.slice(-3), { id, type, text }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4500);
+    }, type === "error" ? 8000 : 4500);
   }, []);
 
   const activeRepo = tabs.find((t) => t.path === activePath) ?? null;
@@ -193,6 +200,7 @@ export function App() {
 
   // Refresh whenever activePath changes
   useEffect(() => {
+    setHistoryBranch("__ALL__");
     if (activePath) {
       refreshRepo(activePath);
     } else {
@@ -270,6 +278,25 @@ export function App() {
       } else if (res.errorCode === "CONFLICT") {
         notify("error", "Pull resulted in merge conflicts! Resolve them in Conflict Resolver.");
         setView("conflicts");
+      } else if (op === "push" && res.errorCode === "HTTPS_REMOTE") {
+        const remotes = await GitService.ListRemotes(activeRepo.path).catch(() => []);
+        const target = (remotes ?? []).find((r) => {
+          const u = (r.pushUrl || r.fetchUrl || "").toLowerCase();
+          return u.startsWith("https://") || u.startsWith("http://");
+        });
+        const sshCandidate = target
+          ? httpsToSshUrl(target.pushUrl || target.fetchUrl)
+          : null;
+        if (target && sshCandidate) {
+          setHttpsRemotePrompt({
+            remoteName: target.name,
+            currentUrl: target.pushUrl || target.fetchUrl,
+            sshUrl: sshCandidate,
+            errorMessage: res.message || "HTTPS push failed",
+          });
+        } else {
+          notify("error", res.message || "Push failed");
+        }
       } else {
         notify("error", res.message || `${op} failed`);
       }
@@ -581,26 +608,44 @@ export function App() {
           <button
             disabled={!activeRepo || remoteBusy !== null}
             onClick={() => handleRemote("pull")}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded hover:bg-[#f1f5f9] text-[12px] font-medium text-[#334155] disabled:opacity-45 cursor-pointer"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[12px] font-medium disabled:opacity-45 cursor-pointer transition-colors ${
+              (status?.behind ?? 0) > 0
+                ? "bg-[#fffbeb] border border-[#fde68a] text-[#b45309] hover:bg-[#fef3c7]"
+                : "text-[#334155] hover:bg-[#f1f5f9]"
+            }`}
           >
             {remoteBusy === "pull" ? (
               <RefreshCw className="w-3.5 h-3.5 text-[#0284c7] animate-spin" />
             ) : (
               <ArrowDown className="w-3.5 h-3.5 text-[#0284c7]" />
             )}
-            Pull
+            <span>Pull</span>
+            {(status?.behind ?? 0) > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-[#d97706] text-white font-mono text-[10px] font-semibold leading-tight">
+                ↓{status?.behind}
+              </span>
+            )}
           </button>
           <button
             disabled={!activeRepo || remoteBusy !== null}
             onClick={() => handleRemote("push")}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded hover:bg-[#f1f5f9] text-[12px] font-medium text-[#334155] disabled:opacity-45 cursor-pointer"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[12px] font-medium disabled:opacity-45 cursor-pointer transition-colors ${
+              (status?.ahead ?? 0) > 0
+                ? "bg-[#f0f9ff] border border-[#bae6fd] text-[#0369a1] hover:bg-[#e0f2fe]"
+                : "text-[#334155] hover:bg-[#f1f5f9]"
+            }`}
           >
             {remoteBusy === "push" ? (
               <RefreshCw className="w-3.5 h-3.5 text-[#0284c7] animate-spin" />
             ) : (
               <ArrowUp className="w-3.5 h-3.5 text-[#0284c7]" />
             )}
-            Push
+            <span>Push</span>
+            {(status?.ahead ?? 0) > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-[#0284c7] text-white font-mono text-[10px] font-semibold leading-tight">
+                ↑{status?.ahead}
+              </span>
+            )}
           </button>
 
           <div className="h-4 w-px bg-[#e2e8f0] mx-1" />
@@ -796,6 +841,11 @@ export function App() {
               tags={tags}
               stashes={stashes}
               currentBranch={status?.branch || ""}
+              activeHistoryBranch={view === "history" ? historyBranch : ""}
+              onInspectBranch={(branchName) => {
+                setHistoryBranch(branchName);
+                setView("history");
+              }}
               onCheckout={handleCheckout}
               onMerge={handleMerge}
               onRequestDeleteBranch={(name) => setDeleteBranchTarget(name)}
@@ -837,6 +887,8 @@ export function App() {
                 <HistoryView
                   repo={activeRepo}
                   branches={branches}
+                  selectedBranch={historyBranch}
+                  onSelectBranch={setHistoryBranch}
                   refreshKey={historyRefreshKey}
                   externalSearch={quickFilter}
                   onCreateBranchFromCommit={(sha) =>
@@ -1001,12 +1053,71 @@ export function App() {
         onNotify={notify}
       />
 
+      {httpsRemotePrompt && activeRepo && (
+        <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white border border-[#cbd5e1] rounded-xl shadow-xl p-4 flex flex-col gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#fef3c7] text-[#d97706] flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-[#0b1c30]">
+                  Push Failed (Remote Uses HTTPS)
+                </h3>
+                <p className="text-xs text-[#64748b] mt-1">
+                  Remote <code className="font-mono">{httpsRemotePrompt.remoteName}</code> is currently using HTTPS, so SSH keys are not used:
+                </p>
+                <div className="mt-2 p-2 rounded bg-[#f8fafc] border border-[#e2e8f0] font-mono text-[11px] flex flex-col gap-1">
+                  <div className="text-[#dc2626] break-all">
+                    Current: {httpsRemotePrompt.currentUrl}
+                  </div>
+                  <div className="text-[#16a34a] break-all">
+                    SSH URL: {httpsRemotePrompt.sshUrl}
+                  </div>
+                </div>
+                <pre className="mt-2 p-2 rounded bg-[#fef2f2] border border-[#fecaca] text-[10px] font-mono text-[#991b1b] whitespace-pre-wrap max-h-24 overflow-y-auto">
+                  {httpsRemotePrompt.errorMessage}
+                </pre>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => setHttpsRemotePrompt(null)}
+                className="px-3 py-1.5 rounded bg-white border border-[#e2e8f0] text-xs font-medium cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const p = httpsRemotePrompt;
+                  setHttpsRemotePrompt(null);
+                  const setRes = await GitService.SetRemoteURL(
+                    activeRepo.path,
+                    p.remoteName,
+                    p.sshUrl
+                  );
+                  if (!setRes.success) {
+                    notify("error", setRes.message);
+                    return;
+                  }
+                  notify("info", `Switched ${p.remoteName} to SSH, pushing...`);
+                  await handleRemote("push");
+                }}
+                className="px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-medium cursor-pointer"
+              >
+                Switch to SSH & Retry Push
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOASTS */}
       <div className="fixed bottom-8 right-4 z-50 flex flex-col gap-1.5 pointer-events-none">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto px-3 py-2 rounded-lg shadow-lg border text-xs font-medium max-w-sm ${
+            className={`pointer-events-auto px-3 py-2 rounded-lg shadow-lg border text-xs font-medium max-w-md flex items-start justify-between gap-2 ${
               t.type === "error"
                 ? "bg-[#fef2f2] border-[#fecaca] text-[#991b1b]"
                 : t.type === "success"
@@ -1014,7 +1125,13 @@ export function App() {
                 : "bg-white border-[#cbd5e1] text-[#0b1c30]"
             }`}
           >
-            {t.text}
+            <span className="break-words select-text">{t.text}</span>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+              className="opacity-60 hover:opacity-100 cursor-pointer shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         ))}
       </div>

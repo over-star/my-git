@@ -102,7 +102,13 @@ func RunGitInDir(ctx context.Context, loc RepoLocation, args ...string) (string,
 
 func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, args ...string) (string, string, error) {
 	fullArgs := append([]string{"-c", "core.quotepath=false"}, args...)
+	sshCmd := ""
+	if isRemoteGitOp(args) {
+		sshCmd = resolveDefaultSSHCommand(ctx, loc, skipCD)
+	}
+
 	var cmd *exec.Cmd
+	remoteOp := isRemoteGitOp(args)
 	if loc.IsWSL {
 		wslArgs := []string{"-d", loc.Distro}
 		if !skipCD && loc.LinuxPath != "" {
@@ -111,20 +117,35 @@ func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, args ...s
 		wslArgs = append(wslArgs, "--", "git")
 		wslArgs = append(wslArgs, fullArgs...)
 		cmd = exec.CommandContext(ctx, "wsl.exe", wslArgs...)
-		cmd.Env = append(os.Environ(),
-			"GIT_TERMINAL_PROMPT=0",
+		env := append(os.Environ(),
 			"LC_ALL=C.UTF-8",
-			"WSLENV=GIT_TERMINAL_PROMPT/u:LC_ALL/u",
 		)
+		wslEnv := "LC_ALL/u"
+		if !remoteOp {
+			env = append(env, "GIT_TERMINAL_PROMPT=0")
+			wslEnv += ":GIT_TERMINAL_PROMPT/u"
+		}
+		if sshCmd != "" {
+			env = append(env, "GIT_SSH_COMMAND="+sshCmd)
+			wslEnv += ":GIT_SSH_COMMAND/u"
+		}
+		env = append(env, "WSLENV="+wslEnv)
+		cmd.Env = env
 	} else {
 		cmd = exec.CommandContext(ctx, "git", fullArgs...)
 		if !skipCD && loc.Path != "" {
 			cmd.Dir = loc.Path
 		}
-		cmd.Env = append(os.Environ(),
-			"GIT_TERMINAL_PROMPT=0",
+		env := append(os.Environ(),
 			"LC_ALL=C.UTF-8",
 		)
+		if !remoteOp {
+			env = append(env, "GIT_TERMINAL_PROMPT=0")
+		}
+		if sshCmd != "" {
+			env = append(env, "GIT_SSH_COMMAND="+sshCmd)
+		}
+		cmd.Env = env
 	}
 	hideWindow(cmd)
 
@@ -134,6 +155,87 @@ func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, args ...s
 
 	err := cmd.Run()
 	return stdoutBuf.String(), stderrBuf.String(), err
+}
+
+func isRemoteGitOp(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		switch a {
+		case "fetch", "pull", "push", "clone", "ls-remote", "submodule":
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// resolveDefaultSSHCommand returns a non-interactive SSH command using default SSH keys
+// if the user hasn't explicitly configured GIT_SSH_COMMAND or core.sshCommand.
+func resolveDefaultSSHCommand(ctx context.Context, loc RepoLocation, skipCD bool) string {
+	if strings.TrimSpace(os.Getenv("GIT_SSH_COMMAND")) != "" {
+		return ""
+	}
+	// Check if core.sshCommand is already configured in git config
+	if hasConfiguredSSHCommand(ctx, loc, skipCD) {
+		return ""
+	}
+
+	if loc.IsWSL {
+		// If WSL2 ~/.ssh has any private key or config, use native WSL ssh with accept-new
+		if wslHasSSHKeys(ctx, loc.Distro) {
+			return "ssh -o StrictHostKeyChecking=accept-new"
+		}
+		// Otherwise fall back to Windows OpenSSH so WSL2 repos can use Windows default ~/.ssh keys
+		winSSH := "/mnt/c/Windows/System32/OpenSSH/ssh.exe"
+		chk := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "--", "test", "-x", winSSH)
+		hideWindow(chk)
+		if chk.Run() == nil {
+			return winSSH + " -o StrictHostKeyChecking=accept-new"
+		}
+		return "ssh -o StrictHostKeyChecking=accept-new"
+	}
+
+	if runtime.GOOS == "windows" {
+		if p, err := exec.LookPath("ssh.exe"); err == nil {
+			return `"` + strings.ReplaceAll(p, `\`, `/`) + `" -o StrictHostKeyChecking=accept-new`
+		}
+	}
+	return "ssh -o StrictHostKeyChecking=accept-new"
+}
+
+func hasConfiguredSSHCommand(ctx context.Context, loc RepoLocation, skipCD bool) bool {
+	var cmd *exec.Cmd
+	if loc.IsWSL {
+		args := []string{"-d", loc.Distro}
+		if !skipCD && loc.LinuxPath != "" {
+			args = append(args, "--cd", loc.LinuxPath)
+		}
+		args = append(args, "--", "git", "config", "--get", "core.sshCommand")
+		cmd = exec.CommandContext(ctx, "wsl.exe", args...)
+	} else {
+		cmd = exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
+		if !skipCD && loc.Path != "" {
+			cmd.Dir = loc.Path
+		}
+	}
+	hideWindow(cmd)
+	out, err := cmd.Output()
+	return err == nil && strings.TrimSpace(string(out)) != ""
+}
+
+func wslHasSSHKeys(ctx context.Context, distro string) bool {
+	script := `for f in "$HOME/.ssh/id_"* "$HOME/.ssh/config"; do
+  [ -f "$f" ] || continue
+  case "$f" in *.pub) continue ;; esac
+  exit 0
+done
+exit 1`
+	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-c", script)
+	hideWindow(cmd)
+	return cmd.Run() == nil
 }
 
 // ValidateGitRepo checks if the given path is a valid Git repository and returns enriched RepoLocation.
