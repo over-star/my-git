@@ -16,6 +16,7 @@ import {
   Pencil,
   CloudOff,
   CheckCircle2,
+  Check,
   Copy,
   History,
   UploadCloud,
@@ -174,6 +175,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showAllTags, setShowAllTags] = useState(false);
   const [openStashes, setOpenStashes] = useState(true);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
+  const [copiedBranchKey, setCopiedBranchKey] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const [folderOpenOverrides, setFolderOpenOverrides] = useState<
     Record<string, boolean>
@@ -411,6 +413,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            title={`复制分支名: ${b.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(b.name);
+              setCopiedBranchKey(rowKey);
+              onNotify("info", `已复制分支名: ${b.name}`);
+              window.setTimeout(() => {
+                setCopiedBranchKey((prev) => (prev === rowKey ? null : prev));
+              }, 1200);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className={`p-0.5 rounded cursor-pointer transition-colors ${
+              copiedBranchKey === rowKey
+                ? isSelected
+                  ? "inline-flex text-white bg-white/20"
+                  : "inline-flex text-[#16a34a] bg-[#dcfce7]"
+                : isSelected
+                ? "hidden group-hover:inline-flex text-white/85 hover:text-white hover:bg-white/20"
+                : "hidden group-hover:inline-flex text-[#64748b] hover:text-[#0284c7] hover:bg-[#e2e8f0]"
+            }`}
+          >
+            {copiedBranchKey === rowKey ? (
+              <Check className="w-3.5 h-3.5" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
           {b.ahead > 0 && (
             <span
               title={`${b.ahead} unpushed commit(s)`}
