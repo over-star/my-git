@@ -14,32 +14,70 @@ export interface GraphRowLayout {
   maxLanes: number;
 }
 
+export interface ComputeGraphOptions {
+  isFiltered?: boolean;
+}
+
 const LANE_COLORS = [
-  "#0284c7", // primary blue
+  "#0284c7", // sky blue
   "#7c3aed", // violet
   "#16a34a", // green
   "#ea580c", // orange
   "#0891b2", // cyan
   "#db2777", // pink
   "#4f46e5", // indigo
+  "#d97706", // amber
+  "#0d9488", // teal
+  "#e11d48", // rose
 ];
 
-export function computeCommitGraph(commits: CommitItem[]): GraphRowLayout[] {
+export function computeCommitGraph(
+  commits: CommitItem[],
+  options?: ComputeGraphOptions
+): GraphRowLayout[] {
   const lanes: (string | null)[] = [];
   const laneColors: string[] = [];
   let nextColorIdx = 0;
 
-  const allocColor = () => {
-    const c = LANE_COLORS[nextColorIdx % LANE_COLORS.length];
-    nextColorIdx++;
-    return c;
+  const allocColor = (laneIdx: number) => {
+    const leftColor = laneIdx > 0 ? laneColors[laneIdx - 1] : "";
+    const rightColor =
+      laneIdx + 1 < laneColors.length ? laneColors[laneIdx + 1] : "";
+    for (let attempt = 0; attempt < LANE_COLORS.length; attempt++) {
+      const candidate =
+        LANE_COLORS[(nextColorIdx + attempt) % LANE_COLORS.length];
+      if (candidate !== leftColor && candidate !== rightColor) {
+        nextColorIdx = (nextColorIdx + attempt + 1) % LANE_COLORS.length;
+        return candidate;
+      }
+    }
+    const fallback = LANE_COLORS[nextColorIdx % LANE_COLORS.length];
+    nextColorIdx = (nextColorIdx + 1) % LANE_COLORS.length;
+    return fallback;
   };
+
+  const findFreeLane = (minLane = 0) => {
+    for (let i = minLane; i < lanes.length; i++) {
+      if (lanes[i] === null) return i;
+    }
+    const idx = lanes.length;
+    lanes.push(null);
+    laneColors.push("");
+    return idx;
+  };
+
+  const presentHashes = options?.isFiltered
+    ? new Set(commits.map((c) => c.hash))
+    : null;
 
   const results: GraphRowLayout[] = [];
 
   for (const commit of commits) {
     const hash = commit.hash;
-    const parents = commit.parents ?? [];
+    const rawParents = commit.parents ?? [];
+    const parents = presentHashes
+      ? rawParents.filter((p) => presentHashes.has(p))
+      : rawParents;
 
     // Find all lanes currently waiting for this commit
     const matchingLanes: number[] = [];
@@ -55,7 +93,7 @@ export function computeCommitGraph(commits: CommitItem[]): GraphRowLayout[] {
 
     if (matchingLanes.length > 0) {
       nodeLane = matchingLanes[0];
-      nodeColor = laneColors[nodeLane] || allocColor();
+      nodeColor = laneColors[nodeLane] || allocColor(nodeLane);
       // Incoming lines from top into nodeLane
       for (const ml of matchingLanes) {
         edges.push({
@@ -69,15 +107,8 @@ export function computeCommitGraph(commits: CommitItem[]): GraphRowLayout[] {
         }
       }
     } else {
-      const freeIdx = lanes.indexOf(null);
-      if (freeIdx >= 0) {
-        nodeLane = freeIdx;
-      } else {
-        nodeLane = lanes.length;
-        lanes.push(null);
-        laneColors.push("");
-      }
-      nodeColor = allocColor();
+      nodeLane = findFreeLane(0);
+      nodeColor = allocColor(nodeLane);
       laneColors[nodeLane] = nodeColor;
     }
 
@@ -119,7 +150,7 @@ export function computeCommitGraph(commits: CommitItem[]): GraphRowLayout[] {
         });
       }
 
-      // Secondary parents (merges)
+      // Secondary parents (merges) — prefer lane >= 1 so lane 0 stays stable for primary trunk
       for (let pi = 1; pi < parents.length; pi++) {
         const p = parents[pi];
         const existing = lanes.indexOf(p);
@@ -127,23 +158,18 @@ export function computeCommitGraph(commits: CommitItem[]): GraphRowLayout[] {
           edges.push({
             fromLane: nodeLane,
             toLane: existing,
-            color: laneColors[existing] || allocColor(),
+            color: laneColors[existing] || allocColor(existing),
             direction: "out",
           });
         } else {
-          const free = lanes.indexOf(null);
-          const targetLane = free >= 0 ? free : lanes.length;
-          if (targetLane === lanes.length) {
-            lanes.push(p);
-            laneColors.push(allocColor());
-          } else {
-            lanes[targetLane] = p;
-            laneColors[targetLane] = allocColor();
-          }
+          const targetLane = findFreeLane(1);
+          const edgeColor = allocColor(targetLane);
+          lanes[targetLane] = p;
+          laneColors[targetLane] = edgeColor;
           edges.push({
             fromLane: nodeLane,
             toLane: targetLane,
-            color: laneColors[targetLane],
+            color: edgeColor,
             direction: "out",
           });
         }

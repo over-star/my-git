@@ -7,12 +7,17 @@ import type { Events } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import type * as main$0 from "../../../../../gitpulse/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import type * as git$0 from "../../../../../gitpulse/internal/git/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "app:open-repo": string;
             "clone:progress": git$0.CloneProgressEvent;
+            "update:status": main$0.UpdateStatus;
         }
     }
 }

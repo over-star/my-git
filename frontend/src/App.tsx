@@ -24,7 +24,10 @@ import {
   Copy,
   Check,
   Layers,
+  Sparkles,
+  RotateCw,
 } from "lucide-react";
+import { Events } from "@wailsio/runtime";
 import type {
   BranchInfo,
   CommitItem,
@@ -35,11 +38,23 @@ import type {
   StashItem,
   TagInfo,
 } from "../bindings/gitpulse/internal/git/models";
-import { GitService } from "../bindings/gitpulse";
+import { GitService, UpdateService } from "../bindings/gitpulse";
+import type { UpdateStatus } from "../bindings/gitpulse";
 import { Sidebar } from "./components/Sidebar";
 import { ChangesView } from "./components/ChangesView";
 import { HistoryView } from "./components/HistoryView";
 import { ConflictView } from "./components/ConflictView";
+import { SplitHandle } from "./components/SplitHandle";
+import { UpdateModal } from "./components/UpdateModal";
+import {
+  DEFAULT_LAYOUT,
+  LayoutPrefs,
+  clamp,
+  hasPersistedLayout,
+  loadCachedLayout,
+  normalizeLayout,
+  saveCachedLayout,
+} from "./utils/layout";
 import { RepoModal } from "./components/RepoModal";
 import { GitConfigModal, httpsToSshUrl } from "./components/GitConfigModal";
 import {
@@ -61,6 +76,17 @@ import {
 
 type ViewMode = "history" | "changes" | "conflicts";
 
+function isValidHistoryRef(
+  ref: string,
+  branches: BranchInfo[],
+  tags: TagInfo[]
+): boolean {
+  if (!ref || ref === "__ALL__") return true;
+  if (branches.some((b) => b.fullName === ref || b.name === ref)) return true;
+  if (tags.some((t) => `refs/tags/${t.name}` === ref || t.name === ref)) return true;
+  return false;
+}
+
 interface ToastMsg {
   id: number;
   type: "success" | "error" | "info";
@@ -71,9 +97,37 @@ export function App() {
   const [tabs, setTabs] = useState<RepoLocation[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("changes");
-  const [historyBranch, setHistoryBranch] = useState<string>("__ALL__");
-  const [branchScopeMode, setBranchScopeMode] = useState<"branch" | "all">("branch");
-  const [lastBranchRef, setLastBranchRef] = useState<string>("");
+  const [historyBranchState, setHistoryBranchState] = useState<{
+    repoPath: string;
+    ref: string;
+  }>({ repoPath: "", ref: "__ALL__" });
+  const [branchScopeMode, setBranchScopeMode] = useState<"branch" | "all">("all");
+  const [lastBranchRefState, setLastBranchRefState] = useState<{
+    repoPath: string;
+    ref: string;
+  }>({ repoPath: "", ref: "" });
+
+  const historyBranch =
+    activePath && historyBranchState.repoPath === activePath
+      ? historyBranchState.ref
+      : "__ALL__";
+  const lastBranchRef =
+    activePath && lastBranchRefState.repoPath === activePath
+      ? lastBranchRefState.ref
+      : "";
+
+  const setHistoryBranch = useCallback(
+    (ref: string) => {
+      setHistoryBranchState({ repoPath: activePath ?? "", ref });
+    },
+    [activePath]
+  );
+  const setLastBranchRef = useCallback(
+    (ref: string) => {
+      setLastBranchRefState({ repoPath: activePath ?? "", ref });
+    },
+    [activePath]
+  );
   const [focusCommitSignal, setFocusCommitSignal] = useState<{
     sha: string;
     nonce: number;
@@ -147,8 +201,36 @@ export function App() {
     sshUrl: string;
     errorMessage: string;
   } | null>(null);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
+    state: "idle",
+    currentVersion: "0.1.0",
+    available: null,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    percent: 0,
+    canSelfUpdate: true,
+    repoUrl: "https://github.com/over-star/my-git",
+    releasesUrl: "https://github.com/over-star/my-git/releases",
+  });
 
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
+  const [layout, setLayout] = useState<LayoutPrefs>(() => loadCachedLayout());
+  const layoutRef = React.useRef<LayoutPrefs>(layout);
+  const sidebarStartWidthRef = React.useRef<number>(layout.sidebarWidth);
+
+  const updateLayout = useCallback(
+    (patch: Partial<LayoutPrefs>, persist: boolean) => {
+      const next = normalizeLayout({ ...layoutRef.current, ...patch });
+      layoutRef.current = next;
+      setLayout(next);
+      if (persist) {
+        saveCachedLayout(next);
+        GitService.SaveLayoutState(next).catch(() => {});
+      }
+    },
+    []
+  );
 
   const notify = useCallback((type: "success" | "error" | "info", text: string) => {
     const id = Date.now() + Math.random();
@@ -179,12 +261,27 @@ export function App() {
           GitService.GetGitConfig(target, ""),
         ]);
         if (seq !== refreshSeqRef.current) return;
+        const nextBranches = br ?? [];
+        const nextTags = tg ?? [];
         setStatus(st);
-        setBranches(br ?? []);
-        setTags(tg ?? []);
+        setBranches(nextBranches);
+        setTags(nextTags);
         setStashes(sh ?? []);
         setRemotes(rm ?? []);
         setPinnedBranches(pins ?? []);
+        setLastBranchRefState((prev) =>
+          prev.repoPath === target &&
+          prev.ref &&
+          !nextBranches.some((b) => b.fullName === prev.ref || b.name === prev.ref)
+            ? { repoPath: target, ref: "" }
+            : prev
+        );
+        setHistoryBranchState((prev) =>
+          prev.repoPath === target &&
+          !isValidHistoryRef(prev.ref, nextBranches, nextTags)
+            ? { repoPath: target, ref: "__ALL__" }
+            : prev
+        );
         setEffectiveAuthor({
           name: cfg?.effective?.userName ?? "",
           email: cfg?.effective?.userEmail ?? "",
@@ -203,9 +300,19 @@ export function App() {
     [activePath, notify]
   );
 
-  // Restore saved tabs on startup
+  // Restore saved tabs & layout on startup
   useEffect(() => {
     GitService.GetGitGlobalVersion().then(setGlobalGitVer).catch(() => {});
+    GitService.GetLayoutState()
+      .then((saved) => {
+        if (hasPersistedLayout(saved)) {
+          const normalized = normalizeLayout(saved);
+          layoutRef.current = normalized;
+          setLayout(normalized);
+          saveCachedLayout(normalized);
+        }
+      })
+      .catch(() => {});
     GitService.GetSavedTabs()
       .then(async (saved) => {
         const paths = saved.tabs ?? [];
@@ -234,6 +341,41 @@ export function App() {
         setActivePath(active);
       })
       .catch(() => setRepoModalOpen(true));
+
+    UpdateService.GetUpdateStatus()
+      .then((st) => {
+        if (st) setUpdateStatus(st);
+      })
+      .catch(() => {});
+
+    const offUpdate = Events.On("update:status", (ev: any) => {
+      const payload = (ev?.data ?? ev) as UpdateStatus;
+      if (payload && payload.state) {
+        setUpdateStatus(payload);
+      }
+    });
+
+    const offOpenRepo = Events.On("app:open-repo", (ev: any) => {
+      const rawPath = String(ev?.data ?? ev ?? "").trim();
+      if (!rawPath) return;
+      GitService.OpenRepo(rawPath)
+        .then((loc) => handleOpenedRepo(loc))
+        .catch(() => {});
+    });
+
+    const updateTimer = window.setTimeout(() => {
+      UpdateService.CheckForUpdate()
+        .then((st) => {
+          if (st) setUpdateStatus(st);
+        })
+        .catch(() => {});
+    }, 2500);
+
+    return () => {
+      offUpdate();
+      offOpenRepo();
+      window.clearTimeout(updateTimer);
+    };
   }, []);
 
   // Persist tabs whenever changed
@@ -247,6 +389,7 @@ export function App() {
   // Refresh whenever activePath changes
   useEffect(() => {
     setHistoryBranch("__ALL__");
+    setBranchScopeMode("all");
     setLastBranchRef("");
     setFocusCommitSignal(null);
     setStatus(null);
@@ -520,6 +663,14 @@ export function App() {
       const res = await GitService.RenameBranch(activeRepo.path, oldName, newName);
       if (res.success) {
         notify("success", res.message);
+        const oldFull = `refs/heads/${oldName}`;
+        const newFull = `refs/heads/${newName}`;
+        if (historyBranch === oldName || historyBranch === oldFull) {
+          setHistoryBranch(newFull);
+        }
+        if (lastBranchRef === oldName || lastBranchRef === oldFull) {
+          setLastBranchRef(newFull);
+        }
         await refreshRepo(activeRepo.path);
       } else {
         notify("error", res.message);
@@ -536,6 +687,13 @@ export function App() {
       const res = await GitService.DeleteBranch(activeRepo.path, name, force);
       if (res.success) {
         notify("success", res.message);
+        const full = `refs/heads/${name}`;
+        if (historyBranch === name || historyBranch === full) {
+          setHistoryBranch("__ALL__");
+        }
+        if (lastBranchRef === name || lastBranchRef === full) {
+          setLastBranchRef("");
+        }
         await refreshRepo(activeRepo.path);
       } else {
         notify("error", res.message);
@@ -553,6 +711,13 @@ export function App() {
       setDeleteRemoteTarget(null);
       if (res.success) {
         notify("success", res.message);
+        const full = `refs/remotes/${remoteBranch}`;
+        if (historyBranch === remoteBranch || historyBranch === full) {
+          setHistoryBranch("__ALL__");
+        }
+        if (lastBranchRef === remoteBranch || lastBranchRef === full) {
+          setLastBranchRef("");
+        }
         await refreshRepo(activeRepo.path);
       } else {
         notify("error", res.message);
@@ -809,13 +974,19 @@ export function App() {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-[#cbd5e1] z-0" />
         <div className="relative z-10 flex items-end gap-1.5 min-w-0 flex-1 h-full">
           {/* App Brand Mark */}
-          <div className="h-full flex items-center gap-1.5 pr-1 shrink-0 app-no-drag">
-            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-[#0284c7] to-[#0369a1] text-white flex items-center justify-center shadow-xs">
-              <GitBranch className="w-3.5 h-3.5" />
-            </div>
+          <div
+            title="mygit"
+            className="h-full flex items-center gap-1.5 pr-1 shrink-0 app-no-drag"
+          >
+            <img
+              src="/mygit-icon.png"
+              alt="mygit"
+              draggable={false}
+              className="w-6 h-6 rounded-md shadow-xs select-none"
+            />
             {tabs.length === 0 && (
-              <span className="text-[11px] font-semibold tracking-tight text-[#0b1c30]">
-                GitPulse
+              <span className="text-[12px] font-semibold tracking-tight text-[#0b1c30]">
+                mygit
               </span>
             )}
           </div>
@@ -1186,10 +1357,10 @@ export function App() {
               )}
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#f8fafc] border border-[#e2e8f0]">
                 <Cloud className="w-3.5 h-3.5 text-[#16a34a]" />
-                <span className="font-mono text-[11px] text-[#334155]">
+                <span className="font-mono text-[12px] text-[#334155]">
                   {status.upstream || status.branch || "local"}
                 </span>
-                <span className="px-1.5 py-0.2 rounded bg-[#e2e8f0] font-mono text-[10px] text-[#334155]">
+                <span className="px-1.5 py-0.2 rounded bg-[#e2e8f0] font-mono text-[11px] text-[#334155]">
                   {!status.upstream
                     ? "no upstream"
                     : status.ahead === 0 && status.behind === 0
@@ -1221,6 +1392,38 @@ export function App() {
             </span>
             <Settings className="w-3 h-3 text-[#64748b]" />
           </button>
+          {(updateStatus.state === "available" ||
+            updateStatus.state === "downloading" ||
+            updateStatus.state === "verifying" ||
+            updateStatus.state === "installing" ||
+            updateStatus.state === "ready") && (
+            <button
+              onClick={() => setUpdateModalOpen(true)}
+              title="查看并安装软件更新"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium cursor-pointer transition-colors ${
+                updateStatus.state === "ready"
+                  ? "bg-[#16a34a] text-white hover:bg-[#15803d]"
+                  : "bg-[#f0f9ff] border border-[#bae6fd] text-[#0369a1] hover:bg-[#e0f2fe]"
+              }`}
+            >
+              {updateStatus.state === "ready" ? (
+                <>
+                  <RotateCw className="w-3 h-3" />
+                  <span>重启更新</span>
+                </>
+              ) : updateStatus.state === "available" ? (
+                <>
+                  <Sparkles className="w-3 h-3" />
+                  <span>新版本 v{updateStatus.available?.version}</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span>更新 {updateStatus.percent}%</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1308,6 +1511,7 @@ export function App() {
           <>
             <Sidebar
               key={`sidebar:${activeRepo.path}`}
+              width={layout.sidebarWidth}
               branches={branches}
               tags={tags}
               stashes={stashes}
@@ -1322,8 +1526,15 @@ export function App() {
                   setHistoryBranch("__ALL__");
                   setView("history");
                 } else {
+                  const validLast =
+                    lastBranchRef &&
+                    branches.some(
+                      (b) => b.fullName === lastBranchRef || b.name === lastBranchRef
+                    )
+                      ? lastBranchRef
+                      : "";
                   const fallback =
-                    lastBranchRef ||
+                    validLast ||
                     branches.find((b) => b.isCurrent)?.fullName ||
                     branches[0]?.fullName ||
                     "__ALL__";
@@ -1389,12 +1600,40 @@ export function App() {
               onNotify={notify}
             />
 
+            <SplitHandle
+              direction="horizontal"
+              variant="edge"
+              title="Drag to resize sidebar · Double-click to reset"
+              onDragStart={() => {
+                sidebarStartWidthRef.current = layoutRef.current.sidebarWidth;
+              }}
+              onDragMove={(dx) => {
+                const maxAllowed = Math.max(
+                  260,
+                  Math.min(560, window.innerWidth - 520)
+                );
+                const nextWidth = clamp(
+                  Math.round(sidebarStartWidthRef.current + dx),
+                  200,
+                  maxAllowed
+                );
+                updateLayout({ sidebarWidth: nextWidth }, false);
+              }}
+              onDragEnd={() => updateLayout({}, true)}
+              onReset={() =>
+                updateLayout({ sidebarWidth: DEFAULT_LAYOUT.sidebarWidth }, true)
+              }
+            />
+
             <main className="flex-1 flex min-w-0 min-h-0">
               {view === "changes" && (
                 <ChangesView
                   key={`changes:${activeRepo.path}`}
                   repo={activeRepo}
                   status={status}
+                  leftRatio={layout.changesLeftRatio}
+                  unstagedRatio={layout.changesUnstagedRatio}
+                  onChangeRatios={updateLayout}
                   onRefresh={() => refreshRepo(activeRepo.path)}
                   onOpenConflictResolver={() => setView("conflicts")}
                   onOpenGitConfig={(sc = "local") =>
@@ -1425,6 +1664,9 @@ export function App() {
                   focusCommitSignal={focusCommitSignal}
                   refreshKey={historyRefreshKey}
                   externalSearch={quickFilter}
+                  bottomRatio={layout.historyBottomRatio}
+                  detailLeftRatio={layout.historyDetailLeftRatio}
+                  onChangeRatios={updateLayout}
                   onCreateBranchFromCommit={(sha) =>
                     setBranchModal({
                       open: true,
@@ -1454,9 +1696,14 @@ export function App() {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center p-6">
-            <FolderGit2 className="w-12 h-12 text-[#0284c7] opacity-80" />
+            <img
+              src="/mygit-icon.png"
+              alt="mygit"
+              draggable={false}
+              className="w-16 h-16 rounded-2xl shadow-sm select-none"
+            />
             <h1 className="text-base font-semibold text-[#0b1c30]">
-              Welcome to GitPulse
+              Welcome to mygit
             </h1>
             <p className="text-xs text-[#64748b] max-w-md">
               Open a local Windows Git repository, browse native WSL2 Linux repositories, or clone from remote.
@@ -1472,12 +1719,12 @@ export function App() {
       </div>
 
       {/* 5. BOTTOM STATUS BAR */}
-      <footer className="h-6 px-3 bg-white border-t border-[#e2e8f0] flex items-center justify-between text-[11px] text-[#475569] shrink-0 select-none">
+      <footer className="h-6 px-3 bg-white border-t border-[#e2e8f0] flex items-center justify-between text-[12px] text-[#475569] shrink-0 select-none">
         <div className="flex items-center gap-3 min-w-0">
           {activeRepo && status ? (
             <>
               <span className="flex items-center gap-1 font-mono font-medium text-[#0284c7]">
-                <GitBranch className="w-3 h-3" />
+                <GitBranch className="w-3.5 h-3.5" />
                 {status.branch || "HEAD"}
               </span>
               <span>
@@ -1515,10 +1762,51 @@ export function App() {
             {activeRepo?.isWsl ? "WSL2 Git" : "Git"}{" "}
             {activeRepo?.gitVersion || globalGitVer}
           </span>
+          <button
+            onClick={() => setUpdateModalOpen(true)}
+            title="检查软件更新"
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[#e2e8f0] text-[#475569] cursor-pointer transition-colors"
+          >
+            <span>v{updateStatus.currentVersion}</span>
+            {(updateStatus.state === "available" ||
+              updateStatus.state === "ready") && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#0284c7]" />
+            )}
+          </button>
         </div>
       </footer>
 
       {/* MODALS */}
+      <UpdateModal
+        open={updateModalOpen}
+        status={updateStatus}
+        onClose={() => setUpdateModalOpen(false)}
+        onCheck={() => {
+          UpdateService.CheckForUpdate()
+            .then((st) => {
+              if (st) setUpdateStatus(st);
+            })
+            .catch((err) => notify("error", String(err)));
+        }}
+        onDownloadAndInstall={() => {
+          UpdateService.DownloadAndInstall()
+            .then((st) => {
+              if (st) setUpdateStatus(st);
+            })
+            .catch((err) => notify("error", String(err)));
+        }}
+        onRestart={() => {
+          UpdateService.RestartAndApply().catch((err) =>
+            notify("error", `重启应用失败: ${err}`)
+          );
+        }}
+        onOpenRelease={(url) => {
+          UpdateService.OpenReleasePage(url).catch((err) =>
+            notify("error", String(err))
+          );
+        }}
+      />
+
       <RepoModal
         isOpen={repoModalOpen}
         canClose={tabs.length > 0}

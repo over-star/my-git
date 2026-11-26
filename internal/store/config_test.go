@@ -37,3 +37,31 @@ func TestPinnedBranchesPersistence(t *testing.T) {
 		t.Fatalf("expected empty pinned list after remove, got: %v", got)
 	}
 }
+
+func TestLayoutStatePersistence(t *testing.T) {
+	dir := t.TempDir()
+	st := &Store{
+		filePath: filepath.Join(dir, "state.json"),
+		state: AppState{
+			PinnedBranches: map[string][]string{},
+		},
+	}
+
+	want := LayoutState{
+		SidebarWidth:           310,
+		ChangesLeftRatio:       0.38,
+		ChangesUnstagedRatio:   0.62,
+		HistoryBottomRatio:     0.52,
+		HistoryDetailLeftRatio: 0.35,
+	}
+	st.SaveLayoutState(want)
+
+	reloaded := &Store{filePath: st.filePath}
+	if err := reloaded.load(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	got := reloaded.GetLayoutState()
+	if got != want {
+		t.Fatalf("layout mismatch: got %+v, want %+v", got, want)
+	}
+}

@@ -11,11 +11,20 @@ import (
 	"gitpulse/internal/git"
 )
 
+type LayoutState struct {
+	SidebarWidth           float64 `json:"sidebarWidth,omitempty"`
+	ChangesLeftRatio       float64 `json:"changesLeftRatio,omitempty"`
+	ChangesUnstagedRatio   float64 `json:"changesUnstagedRatio,omitempty"`
+	HistoryBottomRatio     float64 `json:"historyBottomRatio,omitempty"`
+	HistoryDetailLeftRatio float64 `json:"historyDetailLeftRatio,omitempty"`
+}
+
 type AppState struct {
 	RecentRepos    []git.RecentRepo    `json:"recentRepos"`
 	OpenTabs       []string            `json:"openTabs"`
 	ActiveTab      string              `json:"activeTab"`
 	PinnedBranches map[string][]string `json:"pinnedBranches,omitempty"`
+	Layout         LayoutState         `json:"layout,omitempty"`
 }
 
 type Store struct {
@@ -267,4 +276,17 @@ func (s *Store) RemovePinnedBranch(repoPath, fullName string) {
 		}
 		_ = s.saveLocked()
 	}
+}
+
+func (s *Store) GetLayoutState() LayoutState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state.Layout
+}
+
+func (s *Store) SaveLayoutState(layout LayoutState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Layout = layout
+	_ = s.saveLocked()
 }

@@ -65,6 +65,32 @@ func GetLastCommitMessage(ctx context.Context, loc RepoLocation) (string, string
 	return subject, body, nil
 }
 
+func isMissingRevisionErr(stderr string) bool {
+	low := strings.ToLower(stderr)
+	return strings.Contains(low, "unknown revision") ||
+		strings.Contains(low, "bad revision") ||
+		strings.Contains(low, "ambiguous argument")
+}
+
+func buildCommitLogArgs(format, ref, search string, skip, limit int) []string {
+	args := []string{
+		"log",
+		"--date-order",
+		fmt.Sprintf("--format=%s", format),
+	}
+	if search != "" {
+		args = append(args, "-n2000")
+	} else {
+		args = append(args, fmt.Sprintf("--skip=%d", skip), fmt.Sprintf("-n%d", limit+1))
+	}
+	if ref == "" || ref == "__ALL__" {
+		args = append(args, "--exclude=refs/stash", "--all", "--")
+	} else {
+		args = append(args, ref, "--")
+	}
+	return args
+}
+
 // GetCommitHistory returns a paginated list of commits with parent hashes and ref badges.
 func GetCommitHistory(ctx context.Context, loc RepoLocation, branch string, search string, skip int, limit int) (CommitPage, error) {
 	if limit <= 0 {
@@ -77,48 +103,18 @@ func GetCommitHistory(ctx context.Context, loc RepoLocation, branch string, sear
 	page := CommitPage{Commits: []CommitItem{}}
 	// Use \x1e (record separator) and \x1f (unit separator)
 	format := "%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%D%x1f%s%x1f%b"
-	args := []string{
-		"log",
-		"--topo-order",
-		fmt.Sprintf("--format=%s", format),
-		fmt.Sprintf("--skip=%d", skip),
-		fmt.Sprintf("-n%d", limit+1),
-	}
-
 	b := strings.TrimSpace(branch)
-	if b == "" || b == "__ALL__" {
-		args = append(args, "--all")
-	} else {
-		args = append(args, b)
-	}
-
 	q := strings.TrimSpace(search)
-	if q != "" {
-		// Search across commit message or author (case-insensitive)
-		args = append(args, "--regexp-ignore-case", "--grep="+q, "--author="+q, "--all-match")
-		//Wait: --all-match requires BOTH grep and author. We want OR (match message OR author OR hash).
-		// Fix: handle search cleanly! Let's check below.
-	}
-
-	// If search is provided, let's build proper query:
-	// If q looks like a hex SHA (4-40 hex chars) or general keyword, git log --grep only matches message.
-	// Using --author OR --grep is not supported directly as OR in git log, so if search is present we can pass --grep or do fast filtering, OR run two? Even simpler: git log --grep=q OR if few commits match, let's check:
-	// Actually, we can pass `--grep` when searching message, OR better: when search is set, fetch up to 500 commits from git log and filter across hash, subject, body, author in Go (super fast < 20ms!) or use git log --grep if no author match. Wait: for 10,000+ commit repos, fetching 2000 headers with a light format takes ~40ms! Let's do smart search in Go over a larger batch when search != "".
-	if q != "" {
-		args = []string{
-			"log",
-			"--topo-order",
-			fmt.Sprintf("--format=%s", format),
-			"-n2000",
-		}
-		if b == "" || b == "__ALL__" {
-			args = append(args, "--all")
-		} else {
-			args = append(args, b)
-		}
-	}
+	args := buildCommitLogArgs(format, b, q, skip, limit)
 
 	stdout, stderr, err := RunGit(ctx, loc, args...)
+	if err != nil && b != "" && b != "__ALL__" && isMissingRevisionErr(stderr) {
+		// Stale or deleted branch/tag ref (e.g. deleted externally or during tab switch); fall back to --all.
+		if _, _, rerr := RunGit(ctx, loc, "rev-parse", "--verify", "--quiet", b+"^{commit}"); rerr != nil {
+			args = buildCommitLogArgs(format, "__ALL__", q, skip, limit)
+			stdout, stderr, err = RunGit(ctx, loc, args...)
+		}
+	}
 	if err != nil {
 		msg := strings.TrimSpace(stderr)
 		// Empty repo with no commits yet
@@ -303,9 +299,17 @@ func GetCommitDetail(ctx context.Context, loc RepoLocation, hash string) (Commit
 		}
 	}
 
-	// Get status per file (--name-status) and numstat (--numstat)
-	nsOut, _, _ := RunGit(ctx, loc, "diff-tree", "--no-commit-id", "--name-status", "-r", "--root", "-z", hash)
-	numOut, _, _ := RunGit(ctx, loc, "diff-tree", "--no-commit-id", "--numstat", "-r", "--root", "-z", hash)
+	// Get status per file (--name-status) and numstat (--numstat).
+	// For merge commits (2+ parents), diff directly against the first parent (Parents[0])
+	// because `git diff-tree -m --first-parent` still outputs diffs for all parents.
+	var nsOut, numOut string
+	if len(detail.Parents) >= 2 {
+		nsOut, _, _ = RunGit(ctx, loc, "diff", "--name-status", "-z", detail.Parents[0], hash)
+		numOut, _, _ = RunGit(ctx, loc, "diff", "--numstat", "-z", detail.Parents[0], hash)
+	} else {
+		nsOut, _, _ = RunGit(ctx, loc, "diff-tree", "--no-commit-id", "--name-status", "-r", "--root", "-z", hash)
+		numOut, _, _ = RunGit(ctx, loc, "diff-tree", "--no-commit-id", "--numstat", "-r", "--root", "-z", hash)
+	}
 
 	statsMap := make(map[string]numStat)
 	numTokens := strings.Split(numOut, "\x00")
@@ -364,7 +368,7 @@ func GetCommitDetail(ctx context.Context, loc RepoLocation, hash string) (Commit
 
 // GetCommitFileDiff returns the parsed diff of a specific file within a commit.
 func GetCommitFileDiff(ctx context.Context, loc RepoLocation, hash, relPath string, ignoreWhitespace bool) (FileDiff, error) {
-	args := []string{"show", "--format=", "--root", "--no-color", "--unified=3"}
+	args := []string{"show", "-m", "--first-parent", "--format=", "--root", "--no-color", "--unified=3"}
 	if ignoreWhitespace {
 		args = append(args, "-w")
 	}

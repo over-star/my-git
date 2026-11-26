@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Plus,
   Minus,
@@ -21,10 +21,18 @@ import { GitService } from "../../bindings/gitpulse";
 import { DiffViewer } from "./DiffViewer";
 import { StatusBadge, getStatusTextColor } from "./StatusBadge";
 import { ConfirmDangerModal } from "./Dialogs";
+import { SplitHandle } from "./SplitHandle";
+import { DEFAULT_LAYOUT, clamp } from "../utils/layout";
 
 interface ChangesViewProps {
   repo: RepoLocation;
   status: RepoStatus | null;
+  leftRatio: number;
+  unstagedRatio: number;
+  onChangeRatios: (
+    patch: { changesLeftRatio?: number; changesUnstagedRatio?: number },
+    persist: boolean
+  ) => void;
   onRefresh: () => Promise<void>;
   onOpenConflictResolver: () => void;
   onOpenGitConfig: (scope?: "local" | "global") => void;
@@ -37,6 +45,9 @@ const PREFIX_CHIPS = ["feat", "fix", "refactor", "docs", "chore"];
 export const ChangesView: React.FC<ChangesViewProps> = ({
   repo,
   status,
+  leftRatio,
+  unstagedRatio,
+  onChangeRatios,
   onRefresh,
   onOpenConflictResolver,
   onOpenGitConfig,
@@ -67,6 +78,19 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   const [committing, setCommitting] = useState(false);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [abortConfirmOpen, setAbortConfirmOpen] = useState(false);
+
+  const leftColRef = useRef<HTMLDivElement>(null);
+  const rightColRef = useRef<HTMLDivElement>(null);
+  const unstagedRef = useRef<HTMLDivElement>(null);
+  const stagedRef = useRef<HTMLDivElement>(null);
+  const colDragRef = useRef<{ startPx: number; totalPx: number }>({
+    startPx: 0,
+    totalPx: 1,
+  });
+  const listDragRef = useRef<{ startPx: number; totalPx: number }>({
+    startPx: 0,
+    totalPx: 1,
+  });
 
   // Auto-select first available file if selection disappears
   useEffect(() => {
@@ -465,11 +489,21 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
       </div>
 
       {/* Main Split Workbench */}
-      <div className="flex-1 flex min-w-0 min-h-0 p-2 gap-2">
+      <div className="flex-1 flex min-w-0 min-h-0 p-2">
         {/* LEFT COLUMN: Unstaged + Staged + Commit Box */}
-        <div className="w-[345px] shrink-0 flex flex-col bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
-          {/* Unstaged Changes */}
-          <div className="flex-1 flex flex-col min-h-0 border-b border-[#e2e8f0]">
+        <div
+          ref={leftColRef}
+          style={{ width: `calc((100% - 8px) * ${leftRatio})` }}
+          className="min-w-[240px] shrink-0 flex flex-col bg-white border border-[#e2e8f0] rounded-lg overflow-hidden"
+        >
+          {/* Unstaged + Staged Resizable Lists */}
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Unstaged Changes */}
+            <div
+              ref={unstagedRef}
+              style={{ height: `calc((100% - 6px) * ${unstagedRatio})` }}
+              className="min-h-[84px] shrink-0 flex flex-col"
+            >
             <div className="h-8 px-2.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0 gap-1">
               <div className="flex items-center gap-1.5">
                 <span className="font-semibold text-[12px] text-[#0b1c30]">
@@ -614,8 +648,40 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
             </div>
           </div>
 
+          <SplitHandle
+            direction="vertical"
+            variant="divider"
+            title="Drag to resize Unstaged / Staged · Double-click to reset"
+            onDragStart={() => {
+              const u = unstagedRef.current?.getBoundingClientRect().height ?? 0;
+              const s = stagedRef.current?.getBoundingClientRect().height ?? 0;
+              listDragRef.current = { startPx: u, totalPx: Math.max(1, u + s) };
+            }}
+            onDragMove={(_, dy) => {
+              const { startPx, totalPx } = listDragRef.current;
+              const minPane = 84;
+              const nextPx = clamp(
+                startPx + dy,
+                minPane,
+                Math.max(minPane, totalPx - minPane)
+              );
+              const nextRatio = clamp(nextPx / totalPx, 0.15, 0.85);
+              onChangeRatios({ changesUnstagedRatio: nextRatio }, false);
+            }}
+            onDragEnd={() => onChangeRatios({}, true)}
+            onReset={() =>
+              onChangeRatios(
+                { changesUnstagedRatio: DEFAULT_LAYOUT.changesUnstagedRatio },
+                true
+              )
+            }
+          />
+
           {/* Staged Changes */}
-          <div className="flex-1 flex flex-col min-h-0 border-b border-[#e2e8f0]">
+          <div
+            ref={stagedRef}
+            className="flex-1 flex flex-col min-h-[84px]"
+          >
             <div className="h-8 px-2.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0 gap-1">
               <div className="flex items-center gap-1.5">
                 <span className="font-semibold text-[12px] text-[#0b1c30]">
@@ -710,9 +776,10 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
               )}
             </div>
           </div>
+          </div>
 
           {/* Commit Panel */}
-          <div className="p-2.5 bg-[#f8fafc] flex flex-col gap-2 shrink-0">
+          <div className="p-2.5 bg-[#f8fafc] border-t border-[#e2e8f0] flex flex-col gap-2 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1">
                 {PREFIX_CHIPS.map((p) => (
@@ -805,8 +872,41 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
           </div>
         </div>
 
+        <SplitHandle
+          direction="horizontal"
+          variant="gap"
+          title="Drag to resize Staging / Diff · Double-click to reset"
+          onDragStart={() => {
+            const l = leftColRef.current?.getBoundingClientRect().width ?? 0;
+            const r = rightColRef.current?.getBoundingClientRect().width ?? 0;
+            colDragRef.current = { startPx: l, totalPx: Math.max(1, l + r) };
+          }}
+          onDragMove={(dx) => {
+            const { startPx, totalPx } = colDragRef.current;
+            const minLeft = 240;
+            const minRight = 280;
+            const nextPx = clamp(
+              startPx + dx,
+              minLeft,
+              Math.max(minLeft, totalPx - minRight)
+            );
+            const nextRatio = clamp(nextPx / totalPx, 0.18, 0.65);
+            onChangeRatios({ changesLeftRatio: nextRatio }, false);
+          }}
+          onDragEnd={() => onChangeRatios({}, true)}
+          onReset={() =>
+            onChangeRatios(
+              { changesLeftRatio: DEFAULT_LAYOUT.changesLeftRatio },
+              true
+            )
+          }
+        />
+
         {/* RIGHT COLUMN: Diff Inspector */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
+        <div
+          ref={rightColRef}
+          className="flex-1 flex flex-col min-w-0 min-h-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden"
+        >
           {selected ? (
             <>
               <div className="h-9 px-3 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between gap-2 shrink-0">

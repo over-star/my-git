@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "My Company",
-			"FileDescription": "A gitpulse application",
-			"LegalCopyright": "© 2026, My Company",
-			"ProductName": "My Product",
-			"Comments": "This is a comment"
+			"CompanyName": "over-star",
+			"FileDescription": "mygit - Lightweight Windows & WSL2 Git GUI Client",
+			"LegalCopyright": "© 2026, over-star",
+			"ProductName": "mygit",
+			"Comments": "Lightweight Windows & WSL2 Git GUI Client"
 		}
 	}
 }

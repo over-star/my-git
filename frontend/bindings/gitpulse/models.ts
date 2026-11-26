@@ -15,6 +15,29 @@ export interface SavedTabsState {
     "activeTab": string;
 }
 
+export interface UpdateReleaseInfo {
+    "version": string;
+    "name": string;
+    "notes": string;
+    "publishedAt": string;
+    "assetName": string;
+    "assetSize": number;
+    "releaseUrl": string;
+}
+
+export interface UpdateStatus {
+    "state": string;
+    "currentVersion": string;
+    "available"?: UpdateReleaseInfo | null;
+    "downloadedBytes": number;
+    "totalBytes": number;
+    "percent": number;
+    "errorMessage"?: string;
+    "canSelfUpdate": boolean;
+    "repoUrl": string;
+    "releasesUrl": string;
+}
+
 export interface WSLBrowseResult {
     "path": string;
     "entries": git$0.WSLEntry[] | null;

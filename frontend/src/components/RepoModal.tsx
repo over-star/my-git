@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Folder,
   AlertCircle,
-  GitBranch,
   HardDrive,
   Home,
 } from "lucide-react";
@@ -295,12 +294,15 @@ export const RepoModal: React.FC<RepoModalProps> = ({
         {/* Header */}
         <div className="px-4 py-3 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-[#0284c7] text-white flex items-center justify-center">
-              <GitBranch className="w-3.5 h-3.5" />
-            </div>
+            <img
+              src="/mygit-icon.png"
+              alt="mygit"
+              draggable={false}
+              className="w-7 h-7 rounded-md shadow-xs select-none"
+            />
             <div>
               <h2 className="text-[13px] font-semibold text-[#0b1c30]">
-                GitPulse Repository Manager
+                mygit Repository Manager
               </h2>
               <p className="text-[11px] text-[#64748b]">
                 Open local Windows folders or native WSL2 Linux repositories (/...)
@@ -944,7 +946,7 @@ export const RepoModal: React.FC<RepoModalProps> = ({
       <ConfirmDangerModal
         open={Boolean(removeRecentTarget)}
         title="Remove Recent Repository?"
-        description="Remove this repository from the GitPulse recent list? Local files on disk will NOT be deleted."
+        description="Remove this repository from the mygit recent list? Local files on disk will NOT be deleted."
         detail={
           removeRecentTarget
             ? `${removeRecentTarget.name} (${

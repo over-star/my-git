@@ -429,3 +429,197 @@ func TestAmbiguousLocalBranchNamedOrigin(t *testing.T) {
 	}
 }
 
+func TestGetCommitHistoryMissingOrAmbiguousRef(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+
+	// Create a file whose name could collide with a branch name without "--"
+	_ = os.WriteFile(filepath.Join(dir, "readme.md"), []byte("hello\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	if res, err := Commit(ctx, loc, "init", "", false); err != nil || !res.Success {
+		t.Fatalf("Commit failed: %+v err=%v", res, err)
+	}
+
+	if res, err := CreateBranch(ctx, loc, "readme.md", "", false); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+	histBranch, err := GetCommitHistory(ctx, loc, "refs/heads/readme.md", "", 0, 50)
+	if err != nil || len(histBranch.Commits) != 1 {
+		t.Fatalf("GetCommitHistory for branch matching file failed: %+v err=%v", histBranch, err)
+	}
+
+	// Non-existent / deleted branch ref should fall back cleanly rather than erroring
+	histMissing, err := GetCommitHistory(ctx, loc, "refs/heads/zhangxing/perm", "", 0, 50)
+	if err != nil || len(histMissing.Commits) != 1 {
+		t.Fatalf("GetCommitHistory for deleted/missing ref failed: %+v err=%v", histMissing, err)
+	}
+}
+
+func TestGetCommitDetailAndDiffForMergeCommit(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+
+	_ = os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	if res, err := Commit(ctx, loc, "init", "", false); err != nil || !res.Success {
+		t.Fatalf("init commit failed: %+v err=%v", res, err)
+	}
+
+	if res, err := CreateBranch(ctx, loc, "feat/merge-test", "", true); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("line1\nline2\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	if res, err := Commit(ctx, loc, "feat: add feature.txt", "", false); err != nil || !res.Success {
+		t.Fatalf("feature commit failed: %+v err=%v", res, err)
+	}
+
+	branches, err := ListBranches(ctx, loc)
+	if err != nil {
+		t.Fatalf("ListBranches failed: %v", err)
+	}
+	mainBranch := ""
+	for _, b := range branches {
+		if !b.IsRemote && !b.IsCurrent {
+			mainBranch = b.Name
+			break
+		}
+	}
+	if mainBranch == "" {
+		t.Fatalf("could not find initial branch in %+v", branches)
+	}
+	if res, err := CheckoutBranch(ctx, loc, mainBranch, false); err != nil || !res.Success {
+		t.Fatalf("CheckoutBranch(%s) failed: %+v err=%v", mainBranch, res, err)
+	}
+	// Make an independent commit on mainBranch so merge commit has distinct changes on ^1 vs ^2
+	_ = os.WriteFile(filepath.Join(dir, "main_only.txt"), []byte("main\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	if res, err := Commit(ctx, loc, "chore: main only change", "", false); err != nil || !res.Success {
+		t.Fatalf("main commit failed: %+v err=%v", res, err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "merge", "--no-ff", "-m", "Merge feat/merge-test", "feat/merge-test"); err != nil {
+		t.Fatalf("git merge --no-ff failed: %s (%v)", stderr, err)
+	}
+
+	hist, err := GetCommitHistory(ctx, loc, "", "", 0, 10)
+	if err != nil || len(hist.Commits) == 0 {
+		t.Fatalf("GetCommitHistory failed: %+v err=%v", hist, err)
+	}
+	mergeHash := hist.Commits[0].Hash
+
+	detail, err := GetCommitDetail(ctx, loc, mergeHash)
+	if err != nil {
+		t.Fatalf("GetCommitDetail failed: %v", err)
+	}
+	if len(detail.Parents) != 2 {
+		t.Fatalf("expected 2 parents on merge commit, got %+v", detail.Parents)
+	}
+	if len(detail.Files) != 1 || detail.Files[0].Path != "feature.txt" || detail.Files[0].Additions != 2 {
+		t.Fatalf("expected feature.txt (+2) in merge commit detail, got %+v", detail.Files)
+	}
+
+	fd, err := GetCommitFileDiff(ctx, loc, mergeHash, "feature.txt", false)
+	if err != nil {
+		t.Fatalf("GetCommitFileDiff failed: %v", err)
+	}
+	if fd.Additions != 2 || len(fd.Hunks) == 0 {
+		t.Fatalf("expected diff hunks for merge commit file, got %+v", fd)
+	}
+}
+
+func TestGetCommitHistoryDateOrderAndExcludeStash(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+
+	commitWithDate := func(file, content, msg, isoDate string) {
+		_ = os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644)
+		_ = StageAll(ctx, loc)
+		cmd := exec.CommandContext(ctx, "git", "commit", "-m", msg)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_DATE="+isoDate,
+			"GIT_COMMITTER_DATE="+isoDate,
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("commit %q failed: %s (%v)", msg, string(out), err)
+		}
+	}
+
+	commitWithDate("a.txt", "1\n", "base commit", "2025-01-01T10:00:00Z")
+
+	// Older parallel branch whose ref name ("aaa-old") sorts before main/master
+	if res, err := CreateBranch(ctx, loc, "aaa-old", "", true); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+	commitWithDate("old.txt", "old\n", "old parallel commit", "2025-01-02T10:00:00Z")
+
+	branches, err := ListBranches(ctx, loc)
+	if err != nil {
+		t.Fatalf("ListBranches failed: %v", err)
+	}
+	mainBranch := ""
+	for _, b := range branches {
+		if !b.IsRemote && !b.IsCurrent {
+			mainBranch = b.Name
+			break
+		}
+	}
+	if mainBranch == "" {
+		t.Fatalf("could not find initial branch in %+v", branches)
+	}
+	if res, err := CheckoutBranch(ctx, loc, mainBranch, false); err != nil || !res.Success {
+		t.Fatalf("CheckoutBranch(%s) failed: %+v err=%v", mainBranch, res, err)
+	}
+	// Make a newer commit on mainBranch (and ensure committer timestamp is newer via env)
+	_ = os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	cmd := exec.CommandContext(ctx, "git", "commit", "-m", "latest main commit")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_DATE=2026-06-01T10:00:00Z",
+		"GIT_COMMITTER_DATE=2026-06-01T10:00:00Z",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("latest commit failed: %s (%v)", string(out), err)
+	}
+
+	// Create a stash that must NOT appear in All Commits history
+	_ = os.WriteFile(filepath.Join(dir, "new.txt"), []byte("stashed\n"), 0o644)
+	if res, err := StashPush(ctx, loc, "temp stash", false); err != nil || !res.Success {
+		t.Fatalf("StashPush failed: %+v err=%v", res, err)
+	}
+
+	hist, err := GetCommitHistory(ctx, loc, "__ALL__", "", 0, 20)
+	if err != nil {
+		t.Fatalf("GetCommitHistory failed: %v", err)
+	}
+	if len(hist.Commits) != 3 {
+		t.Fatalf("expected 3 commits (excluding stash), got %d: %+v", len(hist.Commits), hist.Commits)
+	}
+	if hist.Commits[0].Subject != "latest main commit" {
+		t.Fatalf("expected newest commit at top, got %q", hist.Commits[0].Subject)
+	}
+}
+
+

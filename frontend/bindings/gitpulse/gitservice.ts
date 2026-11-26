@@ -11,6 +11,9 @@ import * as application$0 from "../github.com/wailsapp/wails/v3/pkg/application/
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as git$0 from "./internal/git/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as store$0 from "./internal/store/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -114,6 +117,10 @@ export function GetGitGlobalVersion(): $CancellablePromise<string> {
 
 export function GetLastCommitMessage(repoPath: string): $CancellablePromise<$models.LastCommitMessage> {
     return $Call.ByID(3903880269, repoPath);
+}
+
+export function GetLayoutState(): $CancellablePromise<store$0.LayoutState> {
+    return $Call.ByID(1542144158);
 }
 
 export function GetPinnedBranches(repoPath: string): $CancellablePromise<string[] | null> {
@@ -222,6 +229,10 @@ export function RevertCommit(repoPath: string, hash: string, isMerge: boolean): 
 
 export function SaveGitConfig(upd: git$0.GitConfigUpdate): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(1706204582, upd);
+}
+
+export function SaveLayoutState(layout: store$0.LayoutState): $CancellablePromise<void> {
+    return $Call.ByID(817330995, layout);
 }
 
 export function SaveOpenTabs(tabs: string[] | null, active: string): $CancellablePromise<void> {

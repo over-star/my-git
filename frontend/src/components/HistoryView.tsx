@@ -31,6 +31,8 @@ import { GitService } from "../../bindings/gitpulse";
 import { computeCommitGraph } from "../utils/dag";
 import { DiffViewer } from "./DiffViewer";
 import { StatusBadge, formatBytes } from "./StatusBadge";
+import { SplitHandle } from "./SplitHandle";
+import { DEFAULT_LAYOUT, clamp } from "../utils/layout";
 
 interface HistoryViewProps {
   repo: RepoLocation;
@@ -41,6 +43,12 @@ interface HistoryViewProps {
   focusCommitSignal?: { sha: string; nonce: number } | null;
   refreshKey: number;
   externalSearch?: string;
+  bottomRatio: number;
+  detailLeftRatio: number;
+  onChangeRatios: (
+    patch: { historyBottomRatio?: number; historyDetailLeftRatio?: number },
+    persist: boolean
+  ) => void;
   onCreateBranchFromCommit: (sha: string) => void;
   onCreateTagFromCommit: (sha: string) => void;
   onRequestRevertCommit: (commit: CommitItem) => void;
@@ -102,7 +110,7 @@ function buildFileTree<T extends { path: string }>(items: T[]): TreeNode<T>[] {
 }
 
 const PAGE_SIZE = 100;
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 32;
 const LANE_SPACING = 14;
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
@@ -114,6 +122,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   focusCommitSignal,
   refreshKey,
   externalSearch,
+  bottomRatio,
+  detailLeftRatio,
+  onChangeRatios,
   onCreateBranchFromCommit,
   onCreateTagFromCommit,
   onRequestRevertCommit,
@@ -137,7 +148,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
   const [ignoreWs, setIgnoreWs] = useState(false);
 
-  // Changes (flat list) vs File Tree (collapsed by default)
+  // Commit inspector tab ("commit" | "changes" | "all") & right-pane scope ("changed" | "all")
+  const [inspectTab, setInspectTab] = useState<"commit" | "changes" | "all">(
+    "changes"
+  );
   const [fileScope, setFileScope] = useState<"changed" | "all">("changed");
   const [fileFilter, setFileFilter] = useState("");
   const [treeEntries, setTreeEntries] = useState<CommitTreeEntry[]>([]);
@@ -157,6 +171,23 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     y: number;
     commit: CommitItem;
   } | null>(null);
+
+  const topPaneRef = useRef<HTMLDivElement>(null);
+  const bottomPaneRef = useRef<HTMLDivElement>(null);
+  const detailLeftRef = useRef<HTMLDivElement>(null);
+  const detailRightRef = useRef<HTMLDivElement>(null);
+  const commitsCountRef = useRef(0);
+  const prevQueryKeyRef = useRef("");
+  const loadedQueryKeyRef = useRef("");
+  const lastHandledFocusNonceRef = useRef<number | null>(null);
+  const vDragRef = useRef<{ startPx: number; totalPx: number }>({
+    startPx: 0,
+    totalPx: 1,
+  });
+  const hDragRef = useRef<{ startPx: number; totalPx: number }>({
+    startPx: 0,
+    totalPx: 1,
+  });
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -183,35 +214,35 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // Reset and load first page when repo, branch, search, or refreshKey changes
+  // Load commits when repo, branch, search, or refreshKey changes;
+  // preserve pagination depth and selected commit across background refreshes.
   useEffect(() => {
     let cancelled = false;
+    const queryKey = `${repo.path}\0${selectedBranch}\0${debouncedSearch}`;
+    const isQueryChanged = prevQueryKeyRef.current !== queryKey;
+    prevQueryKeyRef.current = queryKey;
+    const limit = isQueryChanged
+      ? PAGE_SIZE
+      : Math.max(PAGE_SIZE, commitsCountRef.current);
+
     setLoading(true);
     GitService.GetCommitHistory(
       repo.path,
       selectedBranch,
       debouncedSearch,
       0,
-      PAGE_SIZE
+      limit
     )
       .then((page) => {
         if (cancelled) return;
         const list = page.commits ?? [];
+        commitsCountRef.current = list.length;
+        loadedQueryKeyRef.current = queryKey;
         setCommits(list);
         setHasMore(page.hasMore);
         if (list.length > 0) {
-          const focusSha = focusCommitSignal?.sha;
-          const focusMatch = focusSha
-            ? list.find(
-                (c) => c.hash.startsWith(focusSha) || c.shortHash === focusSha
-              )
-            : undefined;
           setSelectedHash((prev) =>
-            focusMatch
-              ? focusMatch.hash
-              : prev && list.some((c) => c.hash === prev)
-              ? prev
-              : list[0].hash
+            prev && list.some((c) => c.hash === prev) ? prev : list[0].hash
           );
         } else {
           setSelectedHash(null);
@@ -229,10 +260,22 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     };
   }, [repo.path, selectedBranch, debouncedSearch, refreshKey]);
 
-  // Focus and scroll to a specific commit when signaled (e.g. clicking a branch in All Commits mode)
+  // Focus and scroll to a specific commit once per signal (e.g. clicking a branch in All Commits mode)
   useEffect(() => {
-    const focusSha = focusCommitSignal?.sha;
-    if (!focusSha || commits.length === 0) return;
+    const queryKey = `${repo.path}\0${selectedBranch}\0${debouncedSearch}`;
+    if (
+      !focusCommitSignal?.sha ||
+      loading ||
+      loadedQueryKeyRef.current !== queryKey ||
+      commits.length === 0
+    ) {
+      return;
+    }
+    if (focusCommitSignal.nonce === lastHandledFocusNonceRef.current) {
+      return;
+    }
+    lastHandledFocusNonceRef.current = focusCommitSignal.nonce;
+    const focusSha = focusCommitSignal.sha;
     const idx = commits.findIndex(
       (c) => c.hash.startsWith(focusSha) || c.shortHash === focusSha
     );
@@ -242,7 +285,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       const targetTop = Math.max(0, idx * ROW_HEIGHT - viewportHeight / 3);
       listRef.current.scrollTo({ top: targetTop, behavior: "smooth" });
     }
-  }, [focusCommitSignal, commits]);
+  }, [
+    focusCommitSignal,
+    commits,
+    loading,
+    repo.path,
+    selectedBranch,
+    debouncedSearch,
+    viewportHeight,
+  ]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
@@ -255,7 +306,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         commits.length,
         PAGE_SIZE
       );
-      setCommits((prev) => [...prev, ...(page.commits ?? [])]);
+      setCommits((prev) => {
+        const next = [...prev, ...(page.commits ?? [])];
+        commitsCountRef.current = next.length;
+        return next;
+      });
       setHasMore(page.hasMore);
     } catch (err) {
       onNotify("error", `Load more failed: ${err}`);
@@ -266,7 +321,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
   // Load commit detail + full file tree when selectedHash changes
   useEffect(() => {
-    if (!selectedHash || !commits.some((c) => c.hash === selectedHash)) {
+    if (!selectedHash) {
       setDetail(null);
       setTreeEntries([]);
       setSelectedFile(null);
@@ -309,7 +364,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [repo.path, selectedHash, commits]);
+  }, [repo.path, selectedHash]);
 
   // Load commit file diff OR snapshot content
   useEffect(() => {
@@ -380,13 +435,17 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  const graphRows = useMemo(() => computeCommitGraph(commits), [commits]);
+  const isSearchFiltered = debouncedSearch.trim().length > 0;
+  const graphRows = useMemo(
+    () => computeCommitGraph(commits, { isFiltered: isSearchFiltered }),
+    [commits, isSearchFiltered]
+  );
   const maxLanes = useMemo(() => {
     let m = 2;
     for (const r of graphRows) {
       if (r.maxLanes > m) m = r.maxLanes;
     }
-    return Math.min(m, 8);
+    return Math.min(m, 24);
   }, [graphRows]);
   const graphColWidth = Math.max(68, maxLanes * LANE_SPACING + 20);
 
@@ -407,14 +466,6 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     ) {
       loadMore();
     }
-  };
-
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
   };
 
   const filteredChangedFiles = useMemo(() => {
@@ -462,9 +513,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   <ChevronRight className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
                 )}
                 <Folder className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
-                <span className="font-mono text-[11px] truncate">{node.name}</span>
+                <span className="font-mono text-[12px] truncate">{node.name}</span>
               </div>
-              <span className="font-mono text-[10px] text-[#94a3b8] shrink-0">
+              <span className="font-mono text-[11px] text-[#94a3b8] shrink-0">
                 {node.fileCount}
               </span>
             </div>
@@ -489,9 +540,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         >
           <div className="flex items-center gap-1.5 min-w-0 pr-2">
             <FileCode2 className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
-            <span className="font-mono text-[11px] truncate">{node.name}</span>
+            <span className="font-mono text-[12px] truncate">{node.name}</span>
           </div>
-          <span className="font-mono text-[10px] text-[#94a3b8] shrink-0">
+          <span className="font-mono text-[11px] text-[#94a3b8] shrink-0">
             {formatBytes(item.size)}
           </span>
         </div>
@@ -500,9 +551,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 min-h-0 p-2 gap-2 bg-[#f8fafc]">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 p-2 bg-[#f8fafc]">
       {/* TOP HALF: Filter Toolbar + Commit DAG List */}
-      <div className="flex-1 flex flex-col min-h-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
+      <div
+        ref={topPaneRef}
+        className="flex-1 flex flex-col min-h-[160px] bg-white border border-[#e2e8f0] rounded-lg overflow-hidden"
+      >
         {/* Filter bar */}
         <div className="h-9 px-3 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -511,7 +565,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               <select
                 value={selectedBranch}
                 onChange={(e) => onSelectBranch(e.target.value)}
-                className="h-6 pl-7 pr-6 rounded bg-white border border-[#e2e8f0] text-[11px] font-medium text-[#0b1c30] outline-none focus:border-[#0284c7] appearance-none cursor-pointer max-w-[220px]"
+                className="h-7 pl-7 pr-6 rounded bg-white border border-[#e2e8f0] text-[12px] font-medium text-[#0b1c30] outline-none focus:border-[#0284c7] appearance-none cursor-pointer max-w-[240px]"
               >
                 <option value="__ALL__">All Branches ({branches.length})</option>
                 {branches.map((b) => (
@@ -537,19 +591,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               <ChevronDown className="w-3 h-3 text-[#64748b] absolute right-1.5 pointer-events-none" />
             </div>
 
-            <div className="flex items-center flex-1 max-w-md h-6 bg-white border border-[#e2e8f0] focus-within:border-[#0284c7] rounded px-2">
+            <div className="flex items-center flex-1 max-w-md h-7 bg-white border border-[#e2e8f0] focus-within:border-[#0284c7] rounded px-2">
               <Search className="w-3.5 h-3.5 text-[#94a3b8] mr-1.5 shrink-0" />
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search commit message, author, or hash..."
-                className="w-full bg-transparent text-[11px] text-[#0b1c30] placeholder:text-[#94a3b8] outline-none"
+                className="w-full bg-transparent text-[12px] text-[#0b1c30] placeholder:text-[#94a3b8] outline-none"
               />
               {searchInput && (
                 <button
                   onClick={() => setSearchInput("")}
-                  className="text-[10px] text-[#64748b] hover:text-[#0b1c30] cursor-pointer ml-1"
+                  className="text-[11px] text-[#64748b] hover:text-[#0b1c30] cursor-pointer ml-1"
                 >
                   Clear
                 </button>
@@ -558,7 +612,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <span className="font-mono text-[11px] text-[#64748b]">
+            <span className="font-mono text-[12px] text-[#64748b]">
               {commits.length}
               {hasMore ? "+" : ""} commits
             </span>
@@ -573,14 +627,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
 
         {/* Table Header */}
-        <div className="h-6 px-3 bg-[#f1f5f9] border-b border-[#e2e8f0] flex items-center text-[10px] font-semibold uppercase tracking-wider text-[#64748b] shrink-0">
+        <div className="h-7 px-3 bg-[#f1f5f9] border-b border-[#e2e8f0] flex items-center text-[11px] font-semibold uppercase tracking-wider text-[#64748b] shrink-0">
           <div style={{ width: graphColWidth }} className="shrink-0">
             Graph
           </div>
           <div className="flex-1 min-w-0 pl-2">Description & Refs</div>
-          <div className="w-36 shrink-0">Author</div>
-          <div className="w-44 shrink-0">Date</div>
-          <div className="w-18 shrink-0 text-right">Commit</div>
+          <div className="w-40 shrink-0">Author</div>
+          <div className="w-48 shrink-0">Date</div>
+          <div className="w-20 shrink-0 text-right">Commit</div>
         </div>
 
         {/* Virtualized Commit Rows */}
@@ -642,13 +696,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     {/* SVG DAG Cell */}
                     <div
                       style={{ width: graphColWidth }}
-                      className="h-full shrink-0 flex items-center"
+                      className="h-full shrink-0 flex items-center overflow-hidden"
                     >
                       {layout && (
                         <svg
                           width={graphColWidth}
                           height={ROW_HEIGHT}
-                          className="overflow-visible block"
+                          className="block overflow-hidden"
                         >
                           {layout.edges.map((edge, ei) => {
                             const x1 = laneX(edge.fromLane);
@@ -713,24 +767,58 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                               />
                             );
                           })}
-                          <circle
-                            cx={laneX(layout.lane)}
-                            cy={ROW_HEIGHT / 2}
-                            r={4}
-                            fill={layout.color}
-                            stroke="#ffffff"
-                            strokeWidth={1.5}
-                          />
+                          {(() => {
+                            const cx = laneX(layout.lane);
+                            const cy = ROW_HEIGHT / 2;
+                            const isMerge = (commit.parents?.length ?? 0) >= 2;
+                            const isHead = (commit.refs ?? []).some(
+                              (r) => r.type === "head"
+                            );
+                            return (
+                              <>
+                                {isHead && (
+                                  <circle
+                                    cx={cx}
+                                    cy={cy}
+                                    r={7}
+                                    fill="none"
+                                    stroke={layout.color}
+                                    strokeWidth={1.25}
+                                    strokeOpacity={0.45}
+                                  />
+                                )}
+                                {isMerge ? (
+                                  <circle
+                                    cx={cx}
+                                    cy={cy}
+                                    r={4.5}
+                                    fill="#ffffff"
+                                    stroke={layout.color}
+                                    strokeWidth={2.25}
+                                  />
+                                ) : (
+                                  <circle
+                                    cx={cx}
+                                    cy={cy}
+                                    r={4.2}
+                                    fill={layout.color}
+                                    stroke="#ffffff"
+                                    strokeWidth={1.5}
+                                  />
+                                )}
+                              </>
+                            );
+                          })()}
                         </svg>
                       )}
                     </div>
 
                     {/* Subject & Ref Badges */}
-                    <div className="flex-1 min-w-0 pl-2 pr-3 flex items-center gap-1.5">
+                    <div className="flex-1 min-w-0 overflow-hidden pl-2 pr-3 flex items-center gap-1.5">
                       {(commit.refs ?? []).map((ref, ri) => (
                         <span
                           key={ri}
-                          className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-medium shrink-0 inline-flex items-center gap-1 ${
+                          className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-medium shrink-0 inline-flex items-center gap-1 ${
                             ref.type === "head"
                               ? "bg-[#0284c7] text-white font-semibold"
                               : ref.type === "local"
@@ -740,12 +828,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                               : "bg-[#f0fdf4] text-[#15803d] border border-[#bbf7d0]"
                           }`}
                         >
-                          {ref.type === "tag" && <TagIcon className="w-2.5 h-2.5" />}
+                          {ref.type === "tag" && <TagIcon className="w-3 h-3" />}
                           {ref.name}
                         </span>
                       ))}
                       <span
-                        className={`text-[12px] truncate ${
+                        className={`text-[13px] truncate ${
                           isSelected
                             ? "font-semibold text-[#0b1c30]"
                             : "text-[#1e293b]"
@@ -756,11 +844,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     </div>
 
                     {/* Author */}
-                    <div className="w-36 shrink-0 flex items-center gap-1.5 min-w-0 pr-2">
-                      <span className="w-4 h-4 rounded-full bg-[#e0f2fe] text-[#0369a1] text-[9px] font-bold flex items-center justify-center shrink-0">
-                        {getInitials(commit.author || "?")}
-                      </span>
-                      <span className="text-[11px] text-[#334155] truncate">
+                    <div className="w-40 shrink-0 flex items-center min-w-0 pr-2">
+                      <span className="text-[12px] text-[#334155] truncate">
                         {commit.author}
                       </span>
                     </div>
@@ -768,16 +853,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     {/* Full Date (YYYY-MM-DD HH:mm) + Relative Time */}
                     <div
                       title={`${commit.dateFormatted} (${commit.relativeTime})`}
-                      className="w-44 shrink-0 flex items-center gap-1.5 font-mono text-[11px] text-[#475569] truncate pr-2"
+                      className="w-48 shrink-0 flex items-center gap-1.5 font-mono text-[12px] text-[#475569] truncate pr-2"
                     >
                       <span>{commit.dateFormatted}</span>
-                      <span className="text-[10px] text-[#94a3b8] font-sans truncate">
+                      <span className="text-[11px] text-[#94a3b8] font-sans truncate">
                         {commit.relativeTime}
                       </span>
                     </div>
 
                     {/* Short SHA */}
-                    <div className="w-18 shrink-0 text-right font-mono text-[11px] text-[#0284c7] font-medium">
+                    <div className="w-20 shrink-0 text-right font-mono text-[12px] text-[#0284c7] font-medium">
                       {commit.shortHash}
                     </div>
                   </div>
@@ -809,89 +894,80 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
       </div>
 
+      <SplitHandle
+        direction="vertical"
+        variant="gap"
+        title="Drag to resize Commit Graph / Detail · Double-click to reset"
+        onDragStart={() => {
+          const top = topPaneRef.current?.getBoundingClientRect().height ?? 0;
+          const bot = bottomPaneRef.current?.getBoundingClientRect().height ?? 0;
+          vDragRef.current = { startPx: bot, totalPx: Math.max(1, top + bot) };
+        }}
+        onDragMove={(_, dy) => {
+          const { startPx, totalPx } = vDragRef.current;
+          const minTop = 160;
+          const minBottom = 200;
+          const nextBot = clamp(
+            startPx - dy,
+            minBottom,
+            Math.max(minBottom, totalPx - minTop)
+          );
+          const nextRatio = clamp(nextBot / totalPx, 0.2, 0.75);
+          onChangeRatios({ historyBottomRatio: nextRatio }, false);
+        }}
+        onDragEnd={() => onChangeRatios({}, true)}
+        onReset={() =>
+          onChangeRatios(
+            { historyBottomRatio: DEFAULT_LAYOUT.historyBottomRatio },
+            true
+          )
+        }
+      />
+
       {/* BOTTOM HALF: Commit Metadata + Changed/All Files + Diff/Snapshot */}
-      <div className="h-[46%] min-h-[220px] min-w-0 flex gap-2 shrink-0">
+      <div
+        ref={bottomPaneRef}
+        style={{ height: `calc((100% - 8px) * ${bottomRatio})` }}
+        className="min-h-[200px] min-w-0 flex shrink-0"
+      >
         {/* Left: Metadata & Files */}
-        <div className="w-[42%] min-w-[340px] flex flex-col bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
+        <div
+          ref={detailLeftRef}
+          style={{ width: `calc((100% - 8px) * ${detailLeftRatio})` }}
+          className="min-w-[240px] shrink-0 flex flex-col bg-white border border-[#e2e8f0] rounded-lg overflow-hidden"
+        >
           {detailLoading ? (
             <div className="flex-1 flex items-center justify-center text-xs text-[#64748b]">
               Loading commit details...
             </div>
           ) : detail ? (
             <>
-              <div className="p-2.5 border-b border-[#e2e8f0] bg-[#f8fafc] flex flex-col gap-1.5 shrink-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-[13px] font-semibold text-[#0b1c30] leading-snug">
-                    {detail.subject}
-                  </div>
-                  <button
-                    onClick={() => onCreateBranchFromCommit(detail.hash)}
-                    className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-[#e2e8f0] hover:border-[#0284c7] text-[11px] font-medium text-[#0284c7] cursor-pointer"
-                  >
-                    <GitBranch className="w-3 h-3" />
-                    Branch here
-                  </button>
-                </div>
-
-                {detail.body && (
-                  <pre className="text-[11px] font-mono text-[#475569] whitespace-pre-wrap bg-white border border-[#e2e8f0] rounded p-2 max-h-16 overflow-y-auto">
-                    {detail.body}
-                  </pre>
-                )}
-
-                <div className="flex items-center justify-between gap-2 text-[11px] text-[#475569]">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <GitCommitHorizontal className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
-                    <span className="font-medium text-[#0b1c30] truncate">
-                      {detail.author}
-                    </span>
-                    <span className="text-[#94a3b8] truncate">
-                      &lt;{detail.email}&gt;
-                    </span>
-                  </div>
-                  <span className="text-[#64748b] font-mono text-[10px] shrink-0">
-                    {detail.dateFormatted}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 text-[11px] font-mono text-[#64748b]">
-                  <span className="px-1.5 py-0.5 rounded bg-white border border-[#e2e8f0] text-[#0b1c30] inline-flex items-center gap-1">
-                    SHA: {detail.shortHash}
-                    <button
-                      title="Copy full SHA"
-                      onClick={() => {
-                        navigator.clipboard.writeText(detail.hash);
-                        onNotify("info", `Copied ${detail.shortHash}`);
-                      }}
-                      className="text-[#64748b] hover:text-[#0284c7] cursor-pointer"
-                    >
-                      <Copy className="w-3 h-3" />
-                    </button>
-                  </span>
-                  {(detail.parents ?? []).length > 0 && (
-                    <span className="truncate">
-                      Parent:{" "}
-                      {(detail.parents ?? [])
-                        .map((p) => p.slice(0, 7))
-                        .join(", ")}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Changes vs File Tree Header */}
+              {/* Commit / Changes / File Tree Tabs */}
               <div className="px-2 py-1.5 bg-[#f1f5f9] border-b border-[#e2e8f0] flex flex-col gap-1.5 shrink-0">
                 <div className="flex items-center justify-between gap-1">
                   <div className="flex items-center gap-1">
                     <button
+                      onClick={() => setInspectTab("commit")}
+                      className={`px-2.5 py-1 rounded text-[12px] font-medium cursor-pointer transition-colors ${
+                        inspectTab === "commit"
+                          ? "bg-white text-[#0284c7] shadow-sm font-semibold"
+                          : "text-[#64748b] hover:text-[#0b1c30]"
+                      }`}
+                    >
+                      Commit
+                    </button>
+                    <button
                       onClick={() => {
+                        setInspectTab("changes");
                         setFileScope("changed");
                         const files = detail.files ?? [];
-                        setSelectedFile(files.length > 0 ? files[0].path : null);
+                        if (!selectedFile || !files.some((f) => f.path === selectedFile)) {
+                          setSelectedFile(files.length > 0 ? files[0].path : null);
+                        }
                       }}
-                      className={`px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-colors ${
-                        fileScope === "changed"
-                          ? "bg-white text-[#0284c7] shadow-sm"
+                      className={`px-2.5 py-1 rounded text-[12px] font-medium cursor-pointer transition-colors ${
+                        inspectTab === "changes"
+                          ? "bg-white text-[#0284c7] shadow-sm font-semibold"
                           : "text-[#64748b] hover:text-[#0b1c30]"
                       }`}
                     >
@@ -899,14 +975,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     </button>
                     <button
                       onClick={() => {
+                        setInspectTab("all");
                         setFileScope("all");
-                        setSelectedFile(
-                          treeEntries.length > 0 ? treeEntries[0].path : null
-                        );
+                        if (
+                          !selectedFile ||
+                          !treeEntries.some((t) => t.path === selectedFile)
+                        ) {
+                          setSelectedFile(
+                            treeEntries.length > 0 ? treeEntries[0].path : null
+                          );
+                        }
                       }}
-                      className={`px-2 py-0.5 rounded text-[11px] font-medium cursor-pointer transition-colors ${
-                        fileScope === "all"
-                          ? "bg-white text-[#0284c7] shadow-sm"
+                      className={`px-2.5 py-1 rounded text-[12px] font-medium cursor-pointer transition-colors ${
+                        inspectTab === "all"
+                          ? "bg-white text-[#0284c7] shadow-sm font-semibold"
                           : "text-[#64748b] hover:text-[#0b1c30]"
                       }`}
                     >
@@ -915,81 +997,175 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center bg-white border border-[#e2e8f0] focus-within:border-[#0284c7] rounded px-2 py-0.5">
-                  <Search className="w-3 h-3 text-[#94a3b8] mr-1.5 shrink-0" />
-                  <input
-                    type="text"
-                    value={fileFilter}
-                    onChange={(e) => setFileFilter(e.target.value)}
-                    placeholder={
-                      fileScope === "changed"
-                        ? "Filter changed files..."
-                        : "Filter files in tree..."
-                    }
-                    className="w-full bg-transparent text-[11px] outline-none placeholder:text-[#94a3b8]"
-                  />
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-1 flex flex-col gap-0.5">
-                {fileScope === "changed" ? (
-                  filteredChangedFiles.length === 0 ? (
-                    <div className="py-6 text-center text-[11px] text-[#94a3b8]">
-                      No matching changed files
-                    </div>
-                  ) : (
-                    filteredChangedFiles.map((f) => {
-                      const active = f.path === selectedFile;
-                      return (
-                        <div
-                          key={f.path}
-                          onClick={() => setSelectedFile(f.path)}
-                          className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
-                            active
-                              ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
-                              : "hover:bg-[#f8fafc] text-[#334155]"
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                            <StatusBadge status={f.status} />
-                            <span className="font-mono text-[11px] truncate">
-                              {f.origPath ? `${f.origPath} → ${f.path}` : f.path}
-                            </span>
-                          </div>
-                          <span className="font-mono text-[10px] shrink-0">
-                            {f.isBinary ? (
-                              <span className="text-[#64748b]">BIN</span>
-                            ) : (
-                              <>
-                                {f.additions > 0 && (
-                                  <span className="text-[#16a34a] mr-1">
-                                    +{f.additions}
-                                  </span>
-                                )}
-                                {f.deletions > 0 && (
-                                  <span className="text-[#dc2626]">
-                                    -{f.deletions}
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </span>
-                        </div>
-                      );
-                    })
-                  )
-                ) : treeLoading ? (
-                  <div className="py-6 text-center text-[11px] text-[#64748b]">
-                    Loading file tree...
+                {inspectTab !== "commit" && (
+                  <div className="flex items-center bg-white border border-[#e2e8f0] focus-within:border-[#0284c7] rounded px-2 py-0.5">
+                    <Search className="w-3.5 h-3.5 text-[#94a3b8] mr-1.5 shrink-0" />
+                    <input
+                      type="text"
+                      value={fileFilter}
+                      onChange={(e) => setFileFilter(e.target.value)}
+                      placeholder={
+                        inspectTab === "changes"
+                          ? "Filter changed files..."
+                          : "Filter files in tree..."
+                      }
+                      className="w-full bg-transparent text-[12px] outline-none placeholder:text-[#94a3b8]"
+                    />
                   </div>
-                ) : filteredTreeEntries.length === 0 ? (
-                  <div className="py-6 text-center text-[11px] text-[#94a3b8]">
-                    No files at this commit
-                  </div>
-                ) : (
-                  renderTreeNodes(allTree, 0)
                 )}
               </div>
+
+              {inspectTab === "commit" ? (
+                <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 bg-white">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-[14px] font-semibold text-[#0b1c30] leading-snug select-text">
+                      {detail.subject}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => onCreateBranchFromCommit(detail.hash)}
+                        className="flex items-center gap-1 px-2 py-1 rounded bg-[#f8fafc] border border-[#e2e8f0] hover:border-[#0284c7] text-[12px] font-medium text-[#0284c7] cursor-pointer"
+                      >
+                        <GitBranch className="w-3.5 h-3.5" />
+                        Branch
+                      </button>
+                      <button
+                        onClick={() => onCreateTagFromCommit(detail.hash)}
+                        className="flex items-center gap-1 px-2 py-1 rounded bg-[#f8fafc] border border-[#e2e8f0] hover:border-[#16a34a] text-[12px] font-medium text-[#15803d] cursor-pointer"
+                      >
+                        <TagIcon className="w-3.5 h-3.5" />
+                        Tag
+                      </button>
+                    </div>
+                  </div>
+
+                  {detail.body && (
+                    <pre className="text-[12px] font-mono text-[#334155] whitespace-pre-wrap bg-[#f8fafc] border border-[#e2e8f0] rounded-md p-2.5 leading-relaxed select-text">
+                      {detail.body}
+                    </pre>
+                  )}
+
+                  <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2.5 flex flex-col gap-2 text-[12px]">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-[#0b1c30] truncate">
+                          {detail.author}
+                        </div>
+                        <div className="text-[11px] text-[#64748b] truncate">
+                          {detail.email}
+                        </div>
+                      </div>
+                      <span className="text-[#475569] font-mono text-[11px] shrink-0">
+                        {detail.dateFormatted}
+                      </span>
+                    </div>
+
+                    <div className="h-px bg-[#e2e8f0]" />
+
+                    <div className="flex flex-col gap-1.5 font-mono text-[12px] text-[#475569]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[#64748b]">Commit</span>
+                        <span className="inline-flex items-center gap-1.5 text-[#0b1c30] truncate">
+                          <span className="truncate">{detail.hash}</span>
+                          <button
+                            title="Copy full SHA"
+                            onClick={() => {
+                              navigator.clipboard.writeText(detail.hash);
+                              onNotify("info", `Copied ${detail.shortHash}`);
+                            }}
+                            className="p-0.5 rounded hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0284c7] cursor-pointer shrink-0"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      </div>
+                      {(detail.parents ?? []).length > 0 && (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[#64748b]">Parent</span>
+                          <span className="truncate text-[#334155]">
+                            {(detail.parents ?? [])
+                              .map((p) => p.slice(0, 7))
+                              .join(", ")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setInspectTab("changes");
+                      setFileScope("changed");
+                    }}
+                    className="self-start flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#f0f9ff] border border-[#bae6fd] text-[12px] font-medium text-[#0284c7] hover:bg-[#e0f2fe] cursor-pointer transition-colors"
+                  >
+                    <GitCommitHorizontal className="w-3.5 h-3.5" />
+                    <span>
+                      View {(detail.files ?? []).length} changed file(s)
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-1 flex flex-col gap-0.5">
+                  {inspectTab === "changes" ? (
+                    filteredChangedFiles.length === 0 ? (
+                      <div className="py-6 text-center text-[12px] text-[#94a3b8]">
+                        No matching changed files
+                      </div>
+                    ) : (
+                      filteredChangedFiles.map((f) => {
+                        const active = f.path === selectedFile;
+                        return (
+                          <div
+                            key={f.path}
+                            onClick={() => setSelectedFile(f.path)}
+                            className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
+                              active
+                                ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
+                                : "hover:bg-[#f8fafc] text-[#334155]"
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                              <StatusBadge status={f.status} />
+                              <span className="font-mono text-[12px] truncate">
+                                {f.origPath ? `${f.origPath} → ${f.path}` : f.path}
+                              </span>
+                            </div>
+                            <span className="font-mono text-[11px] shrink-0">
+                              {f.isBinary ? (
+                                <span className="text-[#64748b]">BIN</span>
+                              ) : (
+                                <>
+                                  {f.additions > 0 && (
+                                    <span className="text-[#16a34a] mr-1">
+                                      +{f.additions}
+                                    </span>
+                                  )}
+                                  {f.deletions > 0 && (
+                                    <span className="text-[#dc2626]">
+                                      -{f.deletions}
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )
+                  ) : treeLoading ? (
+                    <div className="py-6 text-center text-[12px] text-[#64748b]">
+                      Loading file tree...
+                    </div>
+                  ) : filteredTreeEntries.length === 0 ? (
+                    <div className="py-6 text-center text-[12px] text-[#94a3b8]">
+                      No files at this commit
+                    </div>
+                  ) : (
+                    renderTreeNodes(allTree, 0)
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-xs text-[#94a3b8]">
@@ -998,16 +1174,49 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           )}
         </div>
 
+        <SplitHandle
+          direction="horizontal"
+          variant="gap"
+          title="Drag to resize File List / File Detail · Double-click to reset"
+          onDragStart={() => {
+            const l = detailLeftRef.current?.getBoundingClientRect().width ?? 0;
+            const r = detailRightRef.current?.getBoundingClientRect().width ?? 0;
+            hDragRef.current = { startPx: l, totalPx: Math.max(1, l + r) };
+          }}
+          onDragMove={(dx) => {
+            const { startPx, totalPx } = hDragRef.current;
+            const minLeft = 240;
+            const minRight = 280;
+            const nextLeft = clamp(
+              startPx + dx,
+              minLeft,
+              Math.max(minLeft, totalPx - minRight)
+            );
+            const nextRatio = clamp(nextLeft / totalPx, 0.2, 0.75);
+            onChangeRatios({ historyDetailLeftRatio: nextRatio }, false);
+          }}
+          onDragEnd={() => onChangeRatios({}, true)}
+          onReset={() =>
+            onChangeRatios(
+              { historyDetailLeftRatio: DEFAULT_LAYOUT.historyDetailLeftRatio },
+              true
+            )
+          }
+        />
+
         {/* Right: Commit File Diff OR Snapshot File Viewer */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden">
+        <div
+          ref={detailRightRef}
+          className="flex-1 flex flex-col min-w-0 min-h-0 bg-white border border-[#e2e8f0] rounded-lg overflow-hidden"
+        >
           <div className="h-9 px-3 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="font-mono text-[11px] font-semibold text-[#0b1c30] truncate">
+              <span className="font-mono text-[12px] font-semibold text-[#0b1c30] truncate">
                 {selectedFile ||
                   (fileScope === "changed" ? "File Diff" : "File Snapshot")}
               </span>
               {fileScope === "all" && snapshotContent && (
-                <span className="px-1.5 py-0.5 rounded bg-[#f1f5f9] font-mono text-[10px] text-[#475569] shrink-0">
+                <span className="px-1.5 py-0.5 rounded bg-[#f1f5f9] font-mono text-[11px] text-[#475569] shrink-0">
                   {formatBytes(snapshotContent.size)}
                 </span>
               )}
@@ -1142,9 +1351,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <div
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 w-56 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[12px] text-[#0b1c30] select-none"
+          className="fixed z-50 w-60 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[13px] text-[#0b1c30] select-none"
         >
-          <div className="px-3 py-1 border-b border-[#f1f5f9] flex items-center justify-between text-[10px] font-mono text-[#64748b]">
+          <div className="px-3 py-1 border-b border-[#f1f5f9] flex items-center justify-between text-[11px] font-mono text-[#64748b]">
             <span className="text-[#0284c7] font-semibold">
               {ctxMenu.commit.shortHash}
             </span>

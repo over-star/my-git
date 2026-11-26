@@ -85,6 +85,14 @@ func (s *GitService) TogglePinBranch(repoPath, fullName string) []string {
 	return s.store.TogglePinBranch(repoPath, fullName)
 }
 
+func (s *GitService) GetLayoutState() store.LayoutState {
+	return s.store.GetLayoutState()
+}
+
+func (s *GitService) SaveLayoutState(layout store.LayoutState) {
+	s.store.SaveLayoutState(layout)
+}
+
 // --- WSL2 Discovery & Browsing ---
 
 func (s *GitService) ListWSLDistros() ([]git.WSLDistro, error) {

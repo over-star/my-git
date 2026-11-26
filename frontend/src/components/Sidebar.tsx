@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
   Cloud,
+  Folder,
+  FolderOpen,
   GitBranch,
   GitMerge,
   Trash2,
@@ -19,7 +21,6 @@ import {
   UploadCloud,
   Pin,
   PinOff,
-  GitCommitHorizontal,
 } from "lucide-react";
 import type {
   BranchInfo,
@@ -29,6 +30,7 @@ import type {
 } from "../../bindings/gitpulse/internal/git/models";
 
 interface SidebarProps {
+  width?: number;
   branches: BranchInfo[];
   tags: TagInfo[];
   stashes: StashItem[];
@@ -64,9 +66,79 @@ interface SidebarProps {
 
 type ContextMenuState =
   | { kind: "branch"; x: number; y: number; branch: BranchInfo }
-  | { kind: "tag"; x: number; y: number; tag: TagInfo };
+  | { kind: "tag"; x: number; y: number; tag: TagInfo }
+  | { kind: "stash"; x: number; y: number; stash: StashItem };
+
+interface BranchTreeNode {
+  name: string;
+  path: string;
+  children: BranchTreeNode[];
+  branch?: BranchInfo;
+  count: number;
+  hasCurrent: boolean;
+}
+
+function buildBranchTree(items: BranchInfo[]): BranchTreeNode[] {
+  const root: BranchTreeNode = {
+    name: "",
+    path: "",
+    children: [],
+    count: 0,
+    hasCurrent: false,
+  };
+
+  for (const branch of items) {
+    const parts = branch.name.split("/").filter(Boolean);
+    if (parts.length === 0) continue;
+    let cur = root;
+    cur.count++;
+    if (branch.isCurrent) cur.hasCurrent = true;
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isLast = i === parts.length - 1;
+      const nodePath = parts.slice(0, i + 1).join("/");
+      let next = cur.children.find(
+        (c) => c.name === part && (isLast ? !!c.branch : !c.branch)
+      );
+      if (!next) {
+        next = {
+          name: part,
+          path: nodePath,
+          children: [],
+          branch: isLast ? branch : undefined,
+          count: isLast ? 1 : 0,
+          hasCurrent: isLast ? branch.isCurrent : false,
+        };
+        cur.children.push(next);
+      } else {
+        if (!isLast) next.count++;
+        if (branch.isCurrent) next.hasCurrent = true;
+      }
+      cur = next;
+    }
+  }
+
+  const sortNodes = (nodes: BranchTreeNode[]) => {
+    nodes.sort((a, b) => {
+      const aDir = !a.branch;
+      const bDir = !b.branch;
+      if (aDir !== bDir) return aDir ? -1 : 1;
+      if (!aDir && !bDir && a.branch!.isCurrent !== b.branch!.isCurrent) {
+        return a.branch!.isCurrent ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    for (const n of nodes) {
+      if (n.children.length > 0) sortNodes(n.children);
+    }
+  };
+  sortNodes(root.children);
+  return root.children;
+}
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  width = 296,
   branches,
   tags,
   stashes,
@@ -103,6 +175,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [openStashes, setOpenStashes] = useState(true);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+  const [folderOpenOverrides, setFolderOpenOverrides] = useState<
+    Record<string, boolean>
+  >({});
 
   useEffect(() => {
     if (activeHistoryBranch && activeHistoryBranch !== "__ALL__") {
@@ -137,7 +212,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [ctxMenu]);
 
   const clampMenuPos = (e: React.MouseEvent, menuHeight: number) => {
-    const menuWidth = 224;
+    const menuWidth = 240;
     return {
       x: Math.min(e.clientX, window.innerWidth - menuWidth - 8),
       y: Math.min(e.clientY, window.innerHeight - menuHeight - 8),
@@ -152,7 +227,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     e.preventDefault();
     e.stopPropagation();
     setSelectedRef(`${keyPrefix}:${branch.fullName}`);
-    const { x, y } = clampMenuPos(e, 360);
+    const { x, y } = clampMenuPos(e, 310);
     setCtxMenu({ kind: "branch", x, y, branch });
   };
 
@@ -160,24 +235,106 @@ export const Sidebar: React.FC<SidebarProps> = ({
     e.preventDefault();
     e.stopPropagation();
     setSelectedRef(`tag:${tag.name}`);
-    const { x, y } = clampMenuPos(e, 300);
+    const { x, y } = clampMenuPos(e, 320);
     setCtxMenu({ kind: "tag", x, y, tag });
+  };
+
+  const openStashContextMenu = (e: React.MouseEvent, stash: StashItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const { x, y } = clampMenuPos(e, 180);
+    setCtxMenu({ kind: "stash", x, y, stash });
   };
 
   const selectedBranch = ctxMenu?.kind === "branch" ? ctxMenu.branch : null;
   const selectedTag = ctxMenu?.kind === "tag" ? ctxMenu.tag : null;
+  const selectedStash = ctxMenu?.kind === "stash" ? ctxMenu.stash : null;
+
+  const isMainBranchName = (name: string, isRemote: boolean) => {
+    if (!isRemote) return name === "main";
+    const slashIdx = name.indexOf("/");
+    const short = slashIdx >= 0 ? name.slice(slashIdx + 1) : name;
+    return short === "main";
+  };
+
+  const canDeleteLocalBranch =
+    !!selectedBranch &&
+    !selectedBranch.isRemote &&
+    !selectedBranch.isCurrent &&
+    !isMainBranchName(selectedBranch.name, false);
+  const canDeleteRemoteBranch =
+    !!selectedBranch &&
+    selectedBranch.isRemote &&
+    !isMainBranchName(selectedBranch.name, true);
+  const canDeleteUpstreamBranch =
+    !!selectedBranch &&
+    !selectedBranch.isRemote &&
+    Boolean(selectedBranch.upstream) &&
+    !isMainBranchName(selectedBranch.upstream, true);
 
   const pinnedSet = new Set(pinnedBranches);
   const branchByFullName = new Map(branches.map((b) => [b.fullName, b]));
   const pinnedBranchItems = pinnedBranches
     .map((fn) => branchByFullName.get(fn))
     .filter((b): b is BranchInfo => Boolean(b));
-  const localBranches = branches
-    .filter((b) => !b.isRemote)
-    .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
-  const remoteBranches = branches.filter((b) => b.isRemote);
+  const localBranches = useMemo(
+    () =>
+      branches
+        .filter((b) => !b.isRemote)
+        .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1)),
+    [branches]
+  );
+  const remoteBranches = useMemo(
+    () => branches.filter((b) => b.isRemote),
+    [branches]
+  );
+  const localTree = useMemo(
+    () => buildBranchTree(localBranches),
+    [localBranches]
+  );
+  const remoteTree = useMemo(
+    () => buildBranchTree(remoteBranches),
+    [remoteBranches]
+  );
+  const hasLocalFolders = useMemo(
+    () => localTree.some((n) => !n.branch),
+    [localTree]
+  );
+  const hasRemoteFolders = useMemo(
+    () => remoteTree.some((n) => !n.branch),
+    [remoteTree]
+  );
 
-  const renderBranchRow = (b: BranchInfo, keyPrefix: string) => {
+  const isFolderOpen = (
+    section: "local" | "remote",
+    node: BranchTreeNode,
+    depth: number
+  ) => {
+    const key = `${section}:${node.path}`;
+    if (key in folderOpenOverrides) return folderOpenOverrides[key];
+    if (node.hasCurrent) return true;
+    // Expand the single top-level remote folder (e.g. origin) by default, keep '/' subfolders collapsed
+    if (section === "remote" && depth === 0 && remoteTree.length <= 1) {
+      return true;
+    }
+    return false;
+  };
+
+  const toggleFolder = (
+    section: "local" | "remote",
+    nodePath: string,
+    currentlyOpen: boolean
+  ) => {
+    const key = `${section}:${nodePath}`;
+    setFolderOpenOverrides((prev) => ({ ...prev, [key]: !currentlyOpen }));
+  };
+
+  const renderBranchRow = (
+    b: BranchInfo,
+    keyPrefix: string,
+    displayName = b.name,
+    paddingLeft?: number
+  ) => {
     const rowKey = `${keyPrefix}:${b.fullName}`;
     const isSelected = selectedRef === rowKey;
     const isPinned = pinnedSet.has(b.fullName);
@@ -192,6 +349,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           if (b.isRemote || !b.isCurrent) onCheckout(b.name, b.isRemote);
         }}
         onContextMenu={(e) => openBranchContextMenu(e, b, keyPrefix)}
+        style={paddingLeft !== undefined ? { paddingLeft } : undefined}
         title={
           b.isCurrent
             ? `Current branch: ${b.name} · Click to view Commit Graph · Right-click for actions`
@@ -199,7 +357,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ? `Click to view Commit Graph · Double-click to checkout tracking branch for ${b.name} · Right-click for actions`
             : `Click to view Commit Graph · Double-click to checkout ${b.name} · Right-click for actions`
         }
-        className={`group flex items-center justify-between px-2 py-1 rounded-md text-[12px] cursor-pointer transition-colors ${
+        className={`group flex items-center justify-between ${
+          paddingLeft !== undefined ? "pr-2" : "px-2"
+        } py-1 rounded-md text-[13px] cursor-pointer transition-colors ${
           isSelected
             ? b.isCurrent
               ? "bg-[#0284c7] text-white font-bold shadow-xs"
@@ -214,31 +374,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {b.isCurrent ? (
             <CheckCircle2
-              className={`w-3.5 h-3.5 shrink-0 ${
+              className={`w-4 h-4 shrink-0 ${
                 isSelected ? "text-white" : "text-[#0284c7]"
               }`}
             />
           ) : b.isRemote ? (
             <Cloud
-              className={`w-3.5 h-3.5 shrink-0 ${
+              className={`w-4 h-4 shrink-0 ${
                 isSelected ? "text-white/90" : "text-[#ea580c]/80"
               }`}
             />
           ) : (
             <GitBranch
-              className={`w-3.5 h-3.5 shrink-0 ${
+              className={`w-4 h-4 shrink-0 ${
                 isSelected ? "text-white/90" : "text-[#94a3b8]"
               }`}
             />
           )}
-          <span className="truncate">{b.name}</span>
+          <span className="truncate">{displayName}</span>
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
           {b.ahead > 0 && (
             <span
               title={`${b.ahead} unpushed commit(s)`}
-              className={`px-1.5 py-0.2 rounded-full font-mono text-[10px] font-semibold leading-tight ${
+              className={`px-1.5 py-0.2 rounded-full font-mono text-[11px] font-semibold leading-tight ${
                 isSelected
                   ? "bg-white/20 text-white"
                   : "bg-[#0284c7] text-white"
@@ -250,7 +410,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {b.behind > 0 && (
             <span
               title={`${b.behind} incoming commit(s) to pull`}
-              className={`px-1.5 py-0.2 rounded-full font-mono text-[10px] font-semibold leading-tight ${
+              className={`px-1.5 py-0.2 rounded-full font-mono text-[11px] font-semibold leading-tight ${
                 isSelected
                   ? "bg-white/20 text-white"
                   : "bg-[#fef3c7] border border-[#fde68a] text-[#b45309]"
@@ -260,117 +420,108 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           )}
           {isPinned && (
-            <button
-              title="Pinned (click to unpin)"
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePinBranch(b.fullName);
-              }}
-              className={`p-0.5 rounded cursor-pointer group-hover:hidden ${
-                isSelected
-                  ? "text-white"
-                  : "text-[#d97706] hover:bg-[#fef3c7]"
+            <span
+              title="Pinned branch (right-click to unpin)"
+              className={`p-0.5 rounded inline-flex ${
+                isSelected ? "text-white" : "text-[#d97706]"
               }`}
             >
-              <Pin className="w-3 h-3 fill-current" />
-            </button>
+              <Pin className="w-3.5 h-3.5 fill-current" />
+            </span>
           )}
-          {b.isCurrent ? (
-            <>
-              <button
-                title={isPinned ? "Unpin branch" : "Pin branch"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTogglePinBranch(b.fullName);
-                }}
-                className={`p-0.5 rounded cursor-pointer hidden group-hover:inline-flex ${
-                  isSelected
-                    ? "text-white hover:bg-white/20"
-                    : "text-[#d97706] hover:bg-[#fef3c7]"
-                }`}
-              >
-                <Pin className={`w-3 h-3 ${isPinned ? "fill-current" : ""}`} />
-              </button>
-              <span
-                className={`px-1.5 py-[1px] rounded text-[9px] font-mono font-bold tracking-wide ${
-                  isSelected
-                    ? "bg-white/20 text-white"
-                    : "bg-[#e0f2fe] text-[#0369a1]"
-                }`}
-              >
-                HEAD
-              </span>
-            </>
-          ) : (
-            <div className="hidden group-hover:flex items-center gap-0.5">
-              <button
-                title={isPinned ? `Unpin '${b.name}'` : `Pin '${b.name}'`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTogglePinBranch(b.fullName);
-                }}
-                className={`p-0.5 rounded cursor-pointer ${
-                  isSelected
-                    ? "hover:bg-white/20 text-white"
-                    : isPinned
-                    ? "hover:bg-[#fef3c7] text-[#d97706]"
-                    : "hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#d97706]"
-                }`}
-              >
-                <Pin className={`w-3 h-3 ${isPinned ? "fill-current" : ""}`} />
-              </button>
-              <button
-                title={`Merge '${b.name}' into '${currentBranch}'`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMerge(b.name);
-                }}
-                className={`p-0.5 rounded cursor-pointer ${
-                  isSelected
-                    ? "hover:bg-white/20 text-white"
-                    : "hover:bg-[#dbeafe] text-[#0284c7]"
-                }`}
-              >
-                <GitMerge className="w-3 h-3" />
-              </button>
-              <button
-                title={
-                  b.isRemote
-                    ? `Delete remote branch '${b.name}'`
-                    : `Delete '${b.name}'`
-                }
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (b.isRemote) {
-                    onRequestDeleteRemoteBranch(b.name);
-                  } else {
-                    onRequestDeleteBranch(b.name);
-                  }
-                }}
-                className={`p-0.5 rounded cursor-pointer ${
-                  isSelected
-                    ? "hover:bg-white/20 text-white"
-                    : "hover:bg-[#fee2e2] text-[#dc2626]"
-                }`}
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-            </div>
+          {b.isCurrent && (
+            <span
+              className={`px-1.5 py-[1px] rounded text-[10px] font-mono font-bold tracking-wide ${
+                isSelected
+                  ? "bg-white/20 text-white"
+                  : "bg-[#e0f2fe] text-[#0369a1]"
+              }`}
+            >
+              HEAD
+            </span>
           )}
         </div>
       </div>
     );
   };
 
+  const renderBranchTree = (
+    nodes: BranchTreeNode[],
+    section: "local" | "remote",
+    hasTopFolders: boolean,
+    depth = 0
+  ): React.ReactNode => {
+    return nodes.map((node) => {
+      if (node.branch) {
+        const padLeft =
+          depth === 0 && !hasTopFolders ? 8 : 20 + depth * 12;
+        return renderBranchRow(node.branch, section, node.name, padLeft);
+      }
+
+      const open = isFolderOpen(section, node, depth);
+      const isRemoteRoot = section === "remote" && depth === 0;
+      return (
+        <div key={`folder:${section}:${node.path}`} className="flex flex-col gap-0.5">
+          <div
+            onClick={() => toggleFolder(section, node.path, open)}
+            style={{ paddingLeft: 4 + depth * 12 }}
+            title={`${node.path}/ (${node.count})`}
+            className="flex items-center justify-between pr-2 py-1 rounded-md text-[13px] text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0b1c30] cursor-pointer transition-colors"
+          >
+            <div className="flex items-center gap-1 min-w-0 flex-1">
+              {open ? (
+                <ChevronDown className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
+              )}
+              {isRemoteRoot ? (
+                <Cloud className="w-3.5 h-3.5 text-[#ea580c]/85 shrink-0" />
+              ) : open ? (
+                <FolderOpen className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
+              ) : (
+                <Folder className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
+              )}
+              <span
+                className={`truncate ${
+                  node.hasCurrent ? "font-semibold text-[#0b1c30]" : ""
+                }`}
+              >
+                {node.name}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {!open && node.hasCurrent && (
+                <span className="px-1.5 py-[1px] rounded text-[10px] font-mono font-bold tracking-wide bg-[#e0f2fe] text-[#0369a1]">
+                  HEAD
+                </span>
+              )}
+              <span className="font-mono text-[11px] text-[#94a3b8]">
+                {node.count}
+              </span>
+            </div>
+          </div>
+          {open && (
+            <div className="flex flex-col gap-0.5">
+              {renderBranchTree(node.children, section, hasTopFolders, depth + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
   return (
-    <aside className="w-60 shrink-0 bg-[#f8fafc] border-r border-[#e2e8f0] flex flex-col overflow-y-auto select-none p-1.5 gap-1">
+    <aside
+      style={{ width }}
+      className="shrink-0 bg-[#f8fafc] flex flex-col overflow-y-auto select-none p-1.5 gap-1"
+    >
       {/* PINNED BRANCHES SECTION */}
       {pinnedBranchItems.length > 0 && (
         <div className="rounded-lg bg-[#fffbeb]/65 border border-[#fde68a]/80 p-1 mb-0.5">
           <div className="flex items-center justify-between px-1 py-0.5 text-[#92400e]">
             <button
               onClick={() => setOpenPinned((v) => !v)}
-              className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider cursor-pointer"
+              className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
             >
               {openPinned ? (
                 <ChevronDown className="w-3.5 h-3.5" />
@@ -380,7 +531,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Pin className="w-3 h-3 text-[#d97706] fill-current" />
               <span>Pinned</span>
             </button>
-            <span className="font-mono text-[10px] text-[#b45309]">
+            <span className="font-mono text-[11px] text-[#b45309]">
               {pinnedBranchItems.length}
             </span>
           </div>
@@ -397,7 +548,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between px-1.5 py-1 text-[#64748b] hover:text-[#0b1c30]">
           <button
             onClick={() => setOpenLocal((v) => !v)}
-            className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider cursor-pointer"
+            className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
           >
             {openLocal ? (
               <ChevronDown className="w-3.5 h-3.5" />
@@ -407,7 +558,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>Local Branches</span>
           </button>
           <div className="flex items-center gap-1">
-            <span className="font-mono text-[10px] text-[#94a3b8]">
+            <span className="font-mono text-[11px] text-[#94a3b8]">
               {localBranches.length}
             </span>
             <button
@@ -415,7 +566,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => onRequestCreateBranch("", true)}
               className="p-0.5 rounded hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0284c7] cursor-pointer"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -428,7 +579,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="button"
                 title="Only show commits reachable from the selected branch"
                 onClick={() => onChangeBranchScopeMode("branch")}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
                   branchScopeMode === "branch"
                     ? "bg-white text-[#0284c7] font-semibold shadow-2xs"
                     : "text-[#64748b] hover:text-[#0b1c30]"
@@ -440,7 +591,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="button"
                 title="Show commits across all branches (clicking a branch highlights its tip)"
                 onClick={() => onChangeBranchScopeMode("all")}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
+                className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
                   branchScopeMode === "all"
                     ? "bg-white text-[#0284c7] font-semibold shadow-2xs"
                     : "text-[#64748b] hover:text-[#0b1c30]"
@@ -450,7 +601,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            {localBranches.map((b) => renderBranchRow(b, "local"))}
+            {renderBranchTree(localTree, "local", hasLocalFolders)}
           </div>
         )}
       </div>
@@ -460,7 +611,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between px-1.5 py-1 text-[#64748b] hover:text-[#0b1c30]">
           <button
             onClick={() => setOpenRemotes((v) => !v)}
-            className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider cursor-pointer"
+            className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
           >
             {openRemotes ? (
               <ChevronDown className="w-3.5 h-3.5" />
@@ -469,7 +620,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
             <span>Remotes</span>
           </button>
-          <span className="font-mono text-[10px] text-[#94a3b8]">
+          <span className="font-mono text-[11px] text-[#94a3b8]">
             {remoteBranches.length}
           </span>
         </div>
@@ -477,11 +628,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {openRemotes && (
           <div className="pl-2 flex flex-col gap-0.5">
             {remoteBranches.length === 0 ? (
-              <div className="px-2 py-1 text-[11px] text-[#94a3b8]">
+              <div className="px-2 py-1 text-[12px] text-[#94a3b8]">
                 No remote branches
               </div>
             ) : (
-              remoteBranches.map((b) => renderBranchRow(b, "remote"))
+              renderBranchTree(remoteTree, "remote", hasRemoteFolders)
             )}
           </div>
         )}
@@ -492,7 +643,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between px-1.5 py-1 text-[#64748b] hover:text-[#0b1c30]">
           <button
             onClick={() => setOpenTags((v) => !v)}
-            className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider cursor-pointer"
+            className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
           >
             {openTags ? (
               <ChevronDown className="w-3.5 h-3.5" />
@@ -502,7 +653,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>Tags</span>
           </button>
           <div className="flex items-center gap-1">
-            <span className="font-mono text-[10px] text-[#94a3b8]">
+            <span className="font-mono text-[11px] text-[#94a3b8]">
               {tags.length}
             </span>
             <button
@@ -510,7 +661,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => onRequestCreateTag("")}
               className="p-0.5 rounded hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0284c7] cursor-pointer"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -518,7 +669,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {openTags && (
           <div className="pl-2 flex flex-col gap-0.5">
             {tags.length === 0 ? (
-              <div className="px-2 py-1 text-[11px] text-[#94a3b8]">No tags</div>
+              <div className="px-2 py-1 text-[12px] text-[#94a3b8]">No tags</div>
             ) : (
               <>
                 {(showAllTags ? tags : tags.slice(0, 40)).map((t) => {
@@ -538,7 +689,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       title={`${t.name} (${t.hash})${
                         t.message ? ` — ${t.message}` : ""
                       }\nClick to view Commit Graph · Double-click to checkout · Right-click for actions`}
-                      className={`group flex items-center justify-between px-2 py-1 rounded-md text-[11px] cursor-pointer transition-colors ${
+                      className={`flex items-center justify-between px-2 py-1 rounded-md text-[13px] cursor-pointer transition-colors ${
                         isSelected
                           ? "bg-[#0284c7] text-white font-semibold shadow-xs"
                           : "text-[#475569] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
@@ -546,58 +697,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
                         <TagIcon
-                          className={`w-3 h-3 shrink-0 ${
+                          className={`w-3.5 h-3.5 shrink-0 ${
                             isSelected ? "text-white/90" : "text-[#16a34a]"
                           }`}
                         />
                         <span className="truncate font-mono">{t.name}</span>
                       </div>
                       <span
-                        className={`font-mono text-[10px] group-hover:hidden shrink-0 ${
+                        className={`font-mono text-[11px] shrink-0 ${
                           isSelected ? "text-white/80" : "text-[#94a3b8]"
                         }`}
                       >
                         {t.hash}
                       </span>
-                      <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-                        {remotes.length > 0 && (
-                          <button
-                            title={`Push tag '${t.name}' to remote`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onPushTag(t);
-                            }}
-                            className={`p-0.5 rounded cursor-pointer ${
-                              isSelected
-                                ? "hover:bg-white/20 text-white"
-                                : "hover:bg-[#dbeafe] text-[#0284c7]"
-                            }`}
-                          >
-                            <UploadCloud className="w-3 h-3" />
-                          </button>
-                        )}
-                        <button
-                          title={`Delete tag '${t.name}'`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRequestDeleteTag(t);
-                          }}
-                          className={`p-0.5 rounded cursor-pointer ${
-                            isSelected
-                              ? "hover:bg-white/20 text-white"
-                              : "hover:bg-[#fee2e2] text-[#dc2626]"
-                          }`}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
                     </div>
                   );
                 })}
                 {tags.length > 40 && (
                   <button
                     onClick={() => setShowAllTags((v) => !v)}
-                    className="px-2 py-1 text-left text-[10px] font-medium text-[#0284c7] hover:underline cursor-pointer"
+                    className="px-2 py-1 text-left text-[11px] font-medium text-[#0284c7] hover:underline cursor-pointer"
                   >
                     {showAllTags
                       ? "Show fewer tags"
@@ -615,7 +734,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between px-1.5 py-1 text-[#64748b] hover:text-[#0b1c30]">
           <button
             onClick={() => setOpenStashes((v) => !v)}
-            className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider cursor-pointer"
+            className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
           >
             {openStashes ? (
               <ChevronDown className="w-3.5 h-3.5" />
@@ -625,7 +744,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>Stashes</span>
           </button>
           <div className="flex items-center gap-1">
-            <span className="font-mono text-[10px] text-[#94a3b8]">
+            <span className="font-mono text-[11px] text-[#94a3b8]">
               {stashes.length}
             </span>
             <button
@@ -633,7 +752,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={onRequestStashPush}
               className="p-0.5 rounded hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0284c7] cursor-pointer"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -641,42 +760,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {openStashes && (
           <div className="pl-2 flex flex-col gap-0.5">
             {stashes.length === 0 ? (
-              <div className="px-2 py-1 text-[11px] text-[#94a3b8]">
+              <div className="px-2 py-1 text-[12px] text-[#94a3b8]">
                 No stashes
               </div>
             ) : (
               stashes.map((s) => (
                 <div
                   key={s.ref}
-                  title={`${s.ref} (${s.relativeTime}): ${s.message}`}
-                  className="group flex items-center justify-between px-2 py-1 rounded text-[11px] text-[#334155] hover:bg-[#f1f5f9]"
+                  onContextMenu={(e) => openStashContextMenu(e, s)}
+                  title={`${s.ref} (${s.relativeTime}): ${s.message}\nRight-click for actions`}
+                  className="flex items-center justify-between px-2 py-1 rounded-md text-[13px] text-[#334155] hover:bg-[#f1f5f9] cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
-                    <Archive className="w-3 h-3 shrink-0 text-[#d97706]" />
+                    <Archive className="w-3.5 h-3.5 shrink-0 text-[#d97706]" />
                     <span className="truncate">{s.message}</span>
-                  </div>
-                  <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-                    <button
-                      title="Apply (keep stash)"
-                      onClick={() => onStashApply(s.ref)}
-                      className="p-0.5 rounded hover:bg-[#dbeafe] text-[#0284c7] cursor-pointer"
-                    >
-                      <Play className="w-3 h-3" />
-                    </button>
-                    <button
-                      title="Pop (apply & remove)"
-                      onClick={() => onStashPop(s.ref)}
-                      className="p-0.5 rounded hover:bg-[#dcfce7] text-[#16a34a] cursor-pointer"
-                    >
-                      <ArrowUpFromLine className="w-3 h-3" />
-                    </button>
-                    <button
-                      title="Drop (delete)"
-                      onClick={() => onStashDrop(s)}
-                      className="p-0.5 rounded hover:bg-[#fee2e2] text-[#dc2626] cursor-pointer"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
                   </div>
                 </div>
               ))
@@ -690,35 +787,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 w-56 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[12px] text-[#0b1c30]"
+          className="fixed z-50 w-60 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[13px] text-[#0b1c30]"
         >
-          <div className="px-3 py-1 border-b border-[#f1f5f9] text-[10px] font-mono text-[#64748b] truncate">
+          <div className="px-3 py-1 border-b border-[#f1f5f9] text-[11px] font-mono text-[#64748b] truncate">
             {selectedBranch.name}
           </div>
-
-          <button
-            onClick={() => {
-              const b = selectedBranch;
-              setCtxMenu(null);
-              onInspectBranch(b.fullName, b.lastSha, "branch");
-            }}
-            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
-          >
-            <GitCommitHorizontal className="w-3.5 h-3.5 text-[#0284c7]" />
-            <span>View Only This Branch Commits</span>
-          </button>
-
-          <button
-            onClick={() => {
-              const b = selectedBranch;
-              setCtxMenu(null);
-              onInspectBranch(b.fullName, b.lastSha, "all");
-            }}
-            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
-          >
-            <History className="w-3.5 h-3.5 text-[#0284c7]" />
-            <span>View All Branches Commits</span>
-          </button>
 
           <button
             onClick={() => {
@@ -809,13 +882,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
 
-          {(!selectedBranch.isCurrent ||
-            selectedBranch.isRemote ||
-            selectedBranch.upstream) && (
+          {(canDeleteLocalBranch ||
+            canDeleteRemoteBranch ||
+            canDeleteUpstreamBranch) && (
             <div className="my-1 border-t border-[#f1f5f9]" />
           )}
 
-          {!selectedBranch.isRemote && !selectedBranch.isCurrent && (
+          {canDeleteLocalBranch && (
             <button
               onClick={() => {
                 const b = selectedBranch;
@@ -829,7 +902,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
 
-          {selectedBranch.isRemote && (
+          {canDeleteRemoteBranch && (
             <button
               onClick={() => {
                 const b = selectedBranch;
@@ -843,7 +916,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
 
-          {!selectedBranch.isRemote && selectedBranch.upstream && (
+          {canDeleteUpstreamBranch && (
             <button
               onClick={() => {
                 const up = selectedBranch.upstream;
@@ -866,17 +939,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 w-56 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[12px] text-[#0b1c30]"
+          className="fixed z-50 w-60 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[13px] text-[#0b1c30]"
         >
           <div className="px-3 py-1.5 border-b border-[#f1f5f9]">
-            <div className="flex items-center justify-between gap-2 text-[10px] font-mono">
+            <div className="flex items-center justify-between gap-2 text-[11px] font-mono">
               <span className="text-[#15803d] font-semibold truncate">
                 {selectedTag.name}
               </span>
               <span className="text-[#94a3b8] shrink-0">{selectedTag.hash}</span>
             </div>
             {selectedTag.message && (
-              <div className="text-[10px] text-[#64748b] truncate mt-0.5">
+              <div className="text-[11px] text-[#64748b] truncate mt-0.5">
                 {selectedTag.message}
               </div>
             )}
@@ -993,6 +1066,67 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Delete Remote Tag...</span>
             </button>
           )}
+        </div>
+      )}
+
+      {/* STASH CONTEXT MENU */}
+      {selectedStash && ctxMenu && (
+        <div
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-50 w-60 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[13px] text-[#0b1c30]"
+        >
+          <div className="px-3 py-1.5 border-b border-[#f1f5f9]">
+            <div className="flex items-center justify-between gap-2 text-[11px] font-mono">
+              <span className="text-[#d97706] font-semibold truncate">
+                {selectedStash.ref}
+              </span>
+              <span className="text-[#94a3b8] shrink-0">
+                {selectedStash.relativeTime}
+              </span>
+            </div>
+            <div className="text-[11px] text-[#64748b] truncate mt-0.5">
+              {selectedStash.message}
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              const s = selectedStash;
+              setCtxMenu(null);
+              onStashApply(s.ref);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <Play className="w-3.5 h-3.5 text-[#0284c7]" />
+            <span>Apply Stash (Keep)</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const s = selectedStash;
+              setCtxMenu(null);
+              onStashPop(s.ref);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0fdf4] hover:text-[#16a34a] cursor-pointer"
+          >
+            <ArrowUpFromLine className="w-3.5 h-3.5 text-[#16a34a]" />
+            <span>Pop Stash (Apply & Remove)</span>
+          </button>
+
+          <div className="my-1 border-t border-[#f1f5f9]" />
+
+          <button
+            onClick={() => {
+              const s = selectedStash;
+              setCtxMenu(null);
+              onStashDrop(s);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-[#dc2626] hover:bg-[#fef2f2] cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Drop Stash...</span>
+          </button>
         </div>
       )}
     </aside>
