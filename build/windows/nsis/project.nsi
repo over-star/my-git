@@ -23,7 +23,7 @@ Unicode true
 !define INFO_COMPANYNAME    "over-star"
 !define INFO_PRODUCTNAME    "mygit"
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.1.0"
+    !define INFO_PRODUCTVERSION "0.1.1"
 !endif
 !define INFO_COPYRIGHT      "(c) 2026, over-star"
 ## !define PRODUCT_EXECUTABLE  "Application.exe"      # Default "${INFO_PROJECTNAME}.exe"
