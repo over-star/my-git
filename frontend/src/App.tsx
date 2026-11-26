@@ -23,7 +23,6 @@ import {
   ChevronDown,
   Copy,
   Check,
-  Layers,
   Sparkles,
   RotateCw,
 } from "lucide-react";
@@ -1059,152 +1058,39 @@ export function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#f8fafc] text-[#0b1c30] overflow-hidden">
-      {/* 1. TOP WINDOW TITLEBAR + REPO TABS */}
-      <header className="h-10 bg-gradient-to-b from-[#e4eeff] to-[#dae7fd] flex items-end justify-between pl-2.5 pr-0 shrink-0 app-drag select-none relative z-30">
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-[#cbd5e1] z-0" />
-        <div className="relative z-10 flex items-end gap-1.5 min-w-0 flex-1 h-full">
-          {/* App Brand Mark */}
-          <div
-            title="mygit"
-            className="h-full flex items-center gap-1.5 pr-1 shrink-0 app-no-drag"
-          >
+      {/* 1. TOP WINDOW TITLEBAR + CHROME-STYLE REPO TABS */}
+      <header className="h-[40px] bg-[#dbe6f7] flex items-end justify-between pl-2.5 pr-0 shrink-0 app-drag select-none relative z-30">
+        <div className="relative z-10 flex items-end min-w-0 flex-1 h-full">
+          {/* App Brand Mark + Quick Tab Switcher (Chrome left pill) */}
+          <div className="h-full flex items-center gap-1.5 pr-1.5 shrink-0 app-no-drag">
             <img
               src="/mygit-icon.png"
               alt="mygit"
+              title="mygit"
               draggable={false}
-              className="w-6 h-6 rounded-md shadow-xs select-none"
+              className="w-5 h-5 rounded-md shadow-2xs select-none"
             />
             {tabs.length === 0 && (
               <span className="text-[12px] font-semibold tracking-tight text-[#0b1c30]">
                 mygit
               </span>
             )}
-          </div>
-
-          {/* Scrollable Repo Tabs */}
-          <div
-            onWheel={(e) => {
-              if (e.deltaY !== 0) {
-                e.currentTarget.scrollLeft += e.deltaY;
-              }
-            }}
-            className="flex items-end gap-0.5 min-w-0 overflow-x-auto no-scrollbar pt-1.5 app-no-drag"
-          >
-            {tabs.map((tab, idx) => {
-              const active = tab.path === activePath;
-              const nextActive = tabs[idx + 1]?.path === activePath;
-              const showDivider = !active && !nextActive && idx < tabs.length - 1;
-              const tabTitle = tab.isWsl
-                ? `WSL2 (${tab.distro}): ${tab.linuxPath}`
-                : tab.path;
-              return (
-                <React.Fragment key={tab.path}>
-                  <div
-                    onClick={() => setActivePath(tab.path)}
-                    onAuxClick={(e) => {
-                      if (e.button === 1) {
-                        e.preventDefault();
-                        closeTabByPath(tab.path);
-                      }
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setRepoSwitcherOpen(false);
-                      setTabCtxMenu({
-                        x: Math.min(e.clientX, window.innerWidth - 210),
-                        y: Math.min(e.clientY, window.innerHeight - 210),
-                        repo: tab,
-                      });
-                    }}
-                    title={tabTitle}
-                    className={`group relative flex items-center gap-1.5 pl-2.5 pr-1.5 h-[34px] rounded-t-lg border-t border-x text-[11px] cursor-pointer transition-colors shrink-0 max-w-[210px] ${
-                      active
-                        ? "z-10 bg-white text-[#0b1c30] font-semibold border-[#cbd5e1] shadow-[0_-1px_3px_rgba(15,23,42,0.05)]"
-                        : "bg-transparent border-transparent text-[#475569] font-medium hover:bg-white/55 hover:text-[#0b1c30]"
-                    }`}
-                  >
-                    {active && (
-                      <span
-                        className={`absolute top-0 left-2 right-2 h-[2px] rounded-b-full ${
-                          tab.isWsl ? "bg-[#7c3aed]" : "bg-[#0284c7]"
-                        }`}
-                      />
-                    )}
-                    <FolderGit2
-                      className={`w-3.5 h-3.5 shrink-0 transition-colors ${
-                        tab.isWsl
-                          ? active
-                            ? "text-[#7c3aed]"
-                            : "text-[#7c3aed]/75 group-hover:text-[#7c3aed]"
-                          : active
-                          ? "text-[#0284c7]"
-                          : "text-[#0284c7]/75 group-hover:text-[#0284c7]"
-                      }`}
-                    />
-                    <span className="truncate max-w-[120px]">{tab.name}</span>
-                    {tab.isWsl && (
-                      <span
-                        className={`px-1.5 py-[1px] rounded-full text-[9px] font-mono font-semibold leading-none shrink-0 border ${
-                          active
-                            ? "bg-[#ede9fe] text-[#6d28d9] border-[#ddd6fe]"
-                            : "bg-[#ede9fe]/75 text-[#6d28d9]/90 border-[#ddd6fe]/70"
-                        }`}
-                      >
-                        WSL2
-                      </span>
-                    )}
-                    <button
-                      aria-label={`Close ${tab.name}`}
-                      onClick={(e) => handleCloseTab(e, tab.path)}
-                      className={`p-0.5 rounded-sm transition-opacity cursor-pointer shrink-0 ${
-                        active
-                          ? "opacity-70 hover:opacity-100 hover:bg-[#f1f5f9] text-[#64748b] hover:text-[#0b1c30]"
-                          : "opacity-0 group-hover:opacity-75 hover:!opacity-100 hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0b1c30]"
-                      }`}
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                  {showDivider && (
-                    <div className="w-px h-3.5 bg-[#bfcee4] self-center shrink-0 mx-0.5" />
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </div>
-
-          {/* Add Repo + Quick Project Switcher */}
-          <div className="flex items-center gap-1 pb-1.5 pl-0.5 shrink-0 app-no-drag relative">
-            <button
-              title="Open / Clone / Init Repository"
-              onClick={() => setRepoModalOpen(true)}
-              className="h-7 px-2 rounded-md bg-white/75 hover:bg-white border border-[#cbd5e1]/90 text-[#334155] hover:text-[#0284c7] flex items-center gap-1 text-[11px] font-medium shadow-2xs transition-colors cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              {tabs.length <= 1 && <span>Open</span>}
-            </button>
-
             {tabs.length > 1 && (
               <div className="relative">
                 <button
-                  title={`Switch open repository (${tabs.length})`}
+                  title={`切换已打开的项目 (${tabs.length})`}
                   onClick={(e) => {
                     e.stopPropagation();
                     setTabCtxMenu(null);
                     setRepoSwitcherOpen((v) => !v);
                   }}
-                  className={`h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                  className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
                     repoSwitcherOpen
-                      ? "bg-white border-[#0284c7] text-[#0284c7] shadow-xs"
-                      : "bg-white/75 hover:bg-white border-[#cbd5e1]/90 text-[#475569] hover:text-[#0b1c30]"
+                      ? "bg-white text-[#0284c7] shadow-xs"
+                      : "bg-[#cad9f0]/80 hover:bg-[#becfe9] text-[#334155]"
                   }`}
                 >
-                  <Layers className="w-3 h-3" />
-                  <span className="font-mono text-[10px] font-semibold">
-                    {tabs.length}
-                  </span>
-                  <ChevronDown className="w-3 h-3 opacity-75" />
+                  <ChevronDown className="w-3.5 h-3.5" />
                 </button>
 
                 {repoSwitcherOpen && (
@@ -1213,7 +1099,7 @@ export function App() {
                     className="absolute left-0 top-8 z-50 w-72 bg-white border border-[#cbd5e1] rounded-xl shadow-xl py-1.5 text-[12px] text-[#0b1c30]"
                   >
                     <div className="px-3 py-1 border-b border-[#f1f5f9] flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#64748b]">
-                      <span>Open Repositories ({tabs.length})</span>
+                      <span>已打开项目 ({tabs.length})</span>
                     </div>
                     <div className="max-h-72 overflow-y-auto py-1">
                       {tabs.map((t) => {
@@ -1262,9 +1148,9 @@ export function App() {
                                 <Check className="w-3.5 h-3.5 text-[#0284c7]" />
                               )}
                               <button
-                                title={`Close ${t.name}`}
+                                title={`关闭 ${t.name}`}
                                 onClick={(e) => handleCloseTab(e, t.path)}
-                                className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-[#fee2e2] text-[#64748b] hover:text-[#dc2626] cursor-pointer"
+                                className="p-1 rounded-full opacity-0 group-hover:opacity-100 hover:bg-[#fee2e2] text-[#64748b] hover:text-[#dc2626] cursor-pointer"
                               >
                                 <X className="w-3 h-3" />
                               </button>
@@ -1282,7 +1168,7 @@ export function App() {
                         className="w-full px-2.5 py-1.5 rounded-lg text-left flex items-center gap-2 text-[11px] font-medium text-[#0284c7] hover:bg-[#f0f9ff] cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>Open or Clone Another Repository...</span>
+                        <span>打开或克隆新仓库...</span>
                       </button>
                     </div>
                   </div>
@@ -1291,8 +1177,107 @@ export function App() {
             )}
           </div>
 
+          {/* Scrollable Chrome-style Repo Tabs */}
+          <div
+            onWheel={(e) => {
+              if (e.deltaY !== 0) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+            className="flex items-end min-w-0 overflow-x-auto no-scrollbar h-full px-[10px] app-no-drag"
+          >
+            {tabs.map((tab, idx) => {
+              const active = tab.path === activePath;
+              const nextActive = tabs[idx + 1]?.path === activePath;
+              const showDivider = !active && !nextActive && idx < tabs.length - 1;
+              const tabTitle = tab.isWsl
+                ? `WSL2 (${tab.distro}): ${tab.linuxPath}`
+                : tab.path;
+              return (
+                <React.Fragment key={tab.path}>
+                  <div
+                    onClick={() => setActivePath(tab.path)}
+                    onAuxClick={(e) => {
+                      if (e.button === 1) {
+                        e.preventDefault();
+                        closeTabByPath(tab.path);
+                      }
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setRepoSwitcherOpen(false);
+                      setTabCtxMenu({
+                        x: Math.min(e.clientX, window.innerWidth - 210),
+                        y: Math.min(e.clientY, window.innerHeight - 210),
+                        repo: tab,
+                      });
+                    }}
+                    title={tabTitle}
+                    className={`group relative flex items-center justify-between gap-1.5 px-3 text-[12px] cursor-pointer select-none transition-colors shrink-0 min-w-[116px] max-w-[205px] ${
+                      active
+                        ? "chrome-tab-active z-20 h-[34px] rounded-t-[10px] bg-white text-[#0b1c30] font-semibold"
+                        : "h-[28px] mb-[4px] mx-[1px] rounded-[8px] bg-transparent text-[#3f4d63] font-medium hover:bg-[#cad9f0]/75 hover:text-[#0b1c30]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <FolderGit2
+                        className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                          tab.isWsl
+                            ? active
+                              ? "text-[#7c3aed]"
+                              : "text-[#7c3aed]/80 group-hover:text-[#7c3aed]"
+                            : active
+                            ? "text-[#0284c7]"
+                            : "text-[#0284c7]/80 group-hover:text-[#0284c7]"
+                        }`}
+                      />
+                      <span className="truncate">{tab.name}</span>
+                      {tab.isWsl && (
+                        <span
+                          className={`px-1.5 py-[1px] rounded-full text-[9px] font-mono font-semibold leading-none shrink-0 ${
+                            active
+                              ? "bg-[#ede9fe] text-[#6d28d9]"
+                              : "bg-white/60 text-[#6d28d9]"
+                          }`}
+                        >
+                          WSL2
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      aria-label={`Close ${tab.name}`}
+                      onClick={(e) => handleCloseTab(e, tab.path)}
+                      className={`w-4 h-4 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                        active
+                          ? "opacity-75 hover:opacity-100 hover:bg-[#e2e8f0] text-[#475569] hover:text-[#0b1c30]"
+                          : "opacity-0 group-hover:opacity-80 hover:!opacity-100 hover:bg-[#b5c7e3] text-[#475569] hover:text-[#0b1c30]"
+                      }`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {showDivider && (
+                    <div className="w-px h-4 bg-[#b8c8e2] self-center mb-[2px] shrink-0" />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          {/* Chrome-style Circular '+' New Tab Button */}
+          <div className="h-full flex items-center pl-0.5 shrink-0 app-no-drag">
+            <button
+              title="打开 / 克隆 / 初始化仓库"
+              onClick={() => setRepoModalOpen(true)}
+              className="w-7 h-7 rounded-full hover:bg-[#cad9f0]/80 text-[#334155] hover:text-[#0b1c30] flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+
           {/* Flexible Drag Handle Space */}
-          <div className="flex-1 min-w-[32px] h-full app-drag" />
+          <div className="flex-1 min-w-[40px] h-full app-drag" />
         </div>
 
         {/* Window Controls */}
@@ -1300,21 +1285,21 @@ export function App() {
           <button
             aria-label="Minimize"
             onClick={() => GitService.MinimizeWindow()}
-            className="h-10 w-11 flex items-center justify-center text-[#475569] hover:bg-[#cdddf9] transition-colors cursor-pointer"
+            className="h-full w-11 flex items-center justify-center text-[#3f4d63] hover:bg-[#cad9f0]/80 transition-colors cursor-pointer"
           >
             <Minus className="w-3.5 h-3.5" />
           </button>
           <button
             aria-label="Maximize"
             onClick={() => GitService.ToggleMaximizeWindow()}
-            className="h-10 w-11 flex items-center justify-center text-[#475569] hover:bg-[#cdddf9] transition-colors cursor-pointer"
+            className="h-full w-11 flex items-center justify-center text-[#3f4d63] hover:bg-[#cad9f0]/80 transition-colors cursor-pointer"
           >
             <Square className="w-3 h-3" />
           </button>
           <button
             aria-label="Close"
             onClick={() => GitService.CloseWindow()}
-            className="h-10 w-11 flex items-center justify-center text-[#475569] hover:bg-[#dc2626] hover:text-white transition-colors cursor-pointer"
+            className="h-full w-11 flex items-center justify-center text-[#3f4d63] hover:bg-[#c42b1c] hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>

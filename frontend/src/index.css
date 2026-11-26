@@ -53,6 +53,28 @@
   line-height: calc(var(--diff-font-size, 12px) + 8px);
 }
 
+/* Google Chrome-style active tab inverted bottom fillets */
+.chrome-tab-active::before,
+.chrome-tab-active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.chrome-tab-active::before {
+  left: -10px;
+  background: radial-gradient(circle at 0 0, transparent 10px, #ffffff 10.5px);
+}
+
+.chrome-tab-active::after {
+  right: -10px;
+  background: radial-gradient(circle at 100% 0, transparent 10px, #ffffff 10.5px);
+}
+
 .app-drag {
   --wails-draggable: drag;
   -webkit-app-region: drag;
