@@ -108,7 +108,7 @@ function buildBranchTree(items: BranchInfo[]): BranchTreeNode[] {
           children: [],
           branch: isLast ? branch : undefined,
           count: isLast ? 1 : 0,
-          hasCurrent: isLast ? branch.isCurrent : false,
+          hasCurrent: branch.isCurrent,
         };
         cur.children.push(next);
       } else {
@@ -305,6 +305,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [remoteTree]
   );
 
+  const folderContainsRef = (
+    node: BranchTreeNode,
+    section: "local" | "remote"
+  ): boolean => {
+    if (node.branch) {
+      const rowKey = `${section}:${node.branch.fullName}`;
+      return (
+        selectedRef === rowKey ||
+        (activeHistoryBranch !== "" &&
+          activeHistoryBranch !== "__ALL__" &&
+          activeHistoryBranch === node.branch.fullName)
+      );
+    }
+    return node.children.some((c) => folderContainsRef(c, section));
+  };
+
   const isFolderOpen = (
     section: "local" | "remote",
     node: BranchTreeNode,
@@ -312,7 +328,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ) => {
     const key = `${section}:${node.path}`;
     if (key in folderOpenOverrides) return folderOpenOverrides[key];
-    if (node.hasCurrent) return true;
+    if (node.hasCurrent || folderContainsRef(node, section)) return true;
     // Expand the single top-level remote folder (e.g. origin) by default, keep '/' subfolders collapsed
     if (section === "remote" && depth === 0 && remoteTree.length <= 1) {
       return true;
