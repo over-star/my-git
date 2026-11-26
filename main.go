@@ -4,14 +4,19 @@ import (
 	"embed"
 	"log"
 	"strings"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"gitpulse/internal/git"
 	"gitpulse/internal/store"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+//go:embed build/appicon.png
+var trayIcon []byte
 
 func init() {
 	application.RegisterEvent[git.CloneProgressEvent]("clone:progress")
@@ -29,6 +34,22 @@ func main() {
 
 	var app *application.App
 	var mainWin *application.WebviewWindow
+	var allowQuit atomic.Bool
+
+	showMainWindow := func() {
+		if mainWin == nil {
+			return
+		}
+		if mainWin.IsMinimised() {
+			mainWin.UnMinimise()
+		}
+		mainWin.Show()
+		mainWin.Focus()
+	}
+
+	updateService.setQuitCallback(func(allow bool) {
+		allowQuit.Store(allow)
+	})
 
 	app = application.New(application.Options{
 		Name:        "mygit",
@@ -43,13 +64,7 @@ func main() {
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.overstar.mygit",
 			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
-				if mainWin != nil {
-					if mainWin.IsMinimised() {
-						mainWin.UnMinimise()
-					}
-					mainWin.Show()
-					mainWin.Focus()
-				}
+				showMainWindow()
 				if app != nil && len(data.Args) > 0 {
 					candidate := strings.TrimSpace(data.Args[0])
 					if candidate != "" {
@@ -58,8 +73,11 @@ func main() {
 				}
 			},
 		},
+		Windows: application.WindowsOptions{
+			DisableQuitOnLastWindowClosed: true,
+		},
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 	})
 	gitService.SetApp(app)
@@ -81,6 +99,34 @@ func main() {
 		},
 		BackgroundColour: application.NewRGB(248, 249, 255),
 		URL:              "/",
+	})
+
+	mainWin.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if allowQuit.Load() {
+			return
+		}
+		event.Cancel()
+		mainWin.Hide()
+	})
+
+	tray := app.SystemTray.New()
+	tray.SetIcon(trayIcon)
+	tray.SetTooltip("mygit")
+	trayMenu := application.NewMenu()
+	trayMenu.Add("显示主窗口").OnClick(func(_ *application.Context) {
+		showMainWindow()
+	})
+	trayMenu.AddSeparator()
+	trayMenu.Add("退出 mygit").OnClick(func(_ *application.Context) {
+		allowQuit.Store(true)
+		app.Quit()
+	})
+	tray.SetMenu(trayMenu)
+	tray.OnClick(func() {
+		showMainWindow()
+	})
+	tray.OnDoubleClick(func() {
+		showMainWindow()
 	})
 
 	if err := app.Run(); err != nil {

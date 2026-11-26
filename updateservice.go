@@ -49,11 +49,18 @@ type UpdateStatus struct {
 }
 
 type UpdateService struct {
-	app  *application.App
-	repo string
+	app          *application.App
+	repo         string
+	setAllowQuit func(bool)
 
 	mu     sync.RWMutex
 	status UpdateStatus
+}
+
+func (s *UpdateService) setQuitCallback(fn func(bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.setAllowQuit = fn
 }
 
 func NewUpdateService(currentVersion, repo string) *UpdateService {
@@ -265,7 +272,19 @@ func (s *UpdateService) RestartAndApply() error {
 	if s.app == nil || s.app.Updater == nil {
 		return errors.New("updater is not initialized")
 	}
-	return s.app.Updater.Restart(context.Background())
+	s.mu.RLock()
+	setQuit := s.setAllowQuit
+	s.mu.RUnlock()
+	if setQuit != nil {
+		setQuit(true)
+	}
+	if err := s.app.Updater.Restart(context.Background()); err != nil {
+		if setQuit != nil {
+			setQuit(false)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *UpdateService) OpenReleasePage(urlStr string) error {
