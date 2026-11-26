@@ -12,7 +12,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/updater"
-	ghprovider "github.com/wailsapp/wails/v3/pkg/updater/providers/github"
 )
 
 // AppVersion is the current semantic version (without leading "v").
@@ -52,6 +51,7 @@ type UpdateService struct {
 	app          *application.App
 	repo         string
 	setAllowQuit func(bool)
+	getToken     func() string
 
 	mu     sync.RWMutex
 	status UpdateStatus
@@ -61,6 +61,27 @@ func (s *UpdateService) setQuitCallback(fn func(bool)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.setAllowQuit = fn
+}
+
+func (s *UpdateService) setTokenGetter(fn func() string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.getToken = fn
+}
+
+func (s *UpdateService) currentToken() string {
+	s.mu.RLock()
+	fn := s.getToken
+	s.mu.RUnlock()
+	if fn != nil {
+		if tok := strings.TrimSpace(fn()); tok != "" {
+			return tok
+		}
+	}
+	if tok := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); tok != "" {
+		return tok
+	}
+	return strings.TrimSpace(os.Getenv("GH_TOKEN"))
 }
 
 func NewUpdateService(currentVersion, repo string) *UpdateService {
@@ -86,13 +107,7 @@ func (s *UpdateService) AttachApp(app *application.App) error {
 		return errors.New("updater is not available")
 	}
 
-	provider, err := ghprovider.New(ghprovider.Config{
-		Repository:    s.repo,
-		ChecksumAsset: "checksums.txt",
-	})
-	if err != nil {
-		return err
-	}
+	provider := newSmartGitHubProvider(s.repo, s.currentToken)
 
 	if err := app.Updater.Init(updater.Config{
 		CurrentVersion: s.status.CurrentVersion,

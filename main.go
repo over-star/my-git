@@ -50,6 +50,9 @@ func main() {
 	updateService.setQuitCallback(func(allow bool) {
 		allowQuit.Store(allow)
 	})
+	updateService.setTokenGetter(func() string {
+		return st.GetAppSettings().GithubToken
+	})
 
 	app = application.New(application.Options{
 		Name:        "mygit",

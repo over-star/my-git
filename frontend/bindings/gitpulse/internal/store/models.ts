@@ -7,6 +7,7 @@ export interface AppSettings {
     "diffFontSize": number;
     "autoRefreshOnFocus": boolean;
     "defaultHistoryScope": string;
+    "githubToken": string;
 }
 
 export interface LayoutState {

@@ -81,6 +81,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   diffFontSize: 12,
   autoRefreshOnFocus: true,
   defaultHistoryScope: "all",
+  githubToken: "",
 };
 
 function loadCachedAppSettings(): AppSettings {

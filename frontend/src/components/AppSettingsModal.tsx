@@ -349,6 +349,26 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
               />
             </label>
 
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-[#0b1c30]">
+                  GitHub Token（可选）
+                </span>
+                <span className="text-[10px] text-[#64748b]">
+                  公开仓库留空即可（自动走网页直连不限流）；私有仓库或提升限额可填 PAT
+                </span>
+              </div>
+              <input
+                type="password"
+                value={settings.githubToken ?? ""}
+                onChange={(e) =>
+                  onUpdateSettings({ githubToken: e.target.value })
+                }
+                placeholder="ghp_...（留空免鉴权检查公开仓库）"
+                className="w-full px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] font-mono text-[11px] outline-none"
+              />
+            </div>
+
             {updateStatus.state === "up-to-date" && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-[#f0fdf4] border border-[#bbf7d0] text-[#15803d] text-[12px]">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />

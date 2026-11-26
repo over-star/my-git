@@ -86,8 +86,9 @@ func TestAppSettingsPersistence(t *testing.T) {
 		DiffFontSize:        14,
 		AutoRefreshOnFocus:  false,
 		DefaultHistoryScope: "branch",
+		GithubToken:         "ghp_example_token",
 	})
-	if saved.AutoCheckUpdates || saved.FontSize != 15 || saved.DiffFontSize != 14 || saved.AutoRefreshOnFocus || saved.DefaultHistoryScope != "branch" {
+	if saved.AutoCheckUpdates || saved.FontSize != 15 || saved.DiffFontSize != 14 || saved.AutoRefreshOnFocus || saved.DefaultHistoryScope != "branch" || saved.GithubToken != "ghp_example_token" {
 		t.Fatalf("unexpected saved settings: %+v", saved)
 	}
 

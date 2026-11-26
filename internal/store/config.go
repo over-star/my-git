@@ -25,6 +25,7 @@ type AppSettings struct {
 	DiffFontSize        int    `json:"diffFontSize"`
 	AutoRefreshOnFocus  bool   `json:"autoRefreshOnFocus"`
 	DefaultHistoryScope string `json:"defaultHistoryScope"`
+	GithubToken         string `json:"githubToken"`
 }
 
 func DefaultAppSettings() AppSettings {
