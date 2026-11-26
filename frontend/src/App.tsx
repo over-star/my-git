@@ -238,7 +238,7 @@ export function App() {
   const appSettingsRef = React.useRef<AppSettings>(appSettings);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     state: "idle",
-    currentVersion: "0.1.1",
+    currentVersion: "0.1.2",
     available: null,
     downloadedBytes: 0,
     totalBytes: 0,

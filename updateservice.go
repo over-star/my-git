@@ -17,7 +17,7 @@ import (
 
 // AppVersion is the current semantic version (without leading "v").
 // Can be overridden at build time via -ldflags "-X main.AppVersion=x.y.z".
-var AppVersion = "0.1.1"
+var AppVersion = "0.1.2"
 
 const (
 	githubRepoSlug = "over-star/my-git"
