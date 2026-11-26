@@ -201,7 +201,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenWorktreeInTerminal,
   onNotify,
 }) => {
-  const [openPinned, setOpenPinned] = useState(true);
   const [openWorktrees, setOpenWorktrees] = useState(true);
   const [openLocal, setOpenLocal] = useState(true);
   const [openRemotes, setOpenRemotes] = useState(true);
@@ -350,11 +349,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
     Boolean(selectedBranch.upstream) &&
     !isMainBranchName(selectedBranch.upstream, true);
 
-  const pinnedSet = new Set(pinnedBranches);
-  const branchByFullName = new Map(branches.map((b) => [b.fullName, b]));
-  const pinnedBranchItems = pinnedBranches
-    .map((fn) => branchByFullName.get(fn))
-    .filter((b): b is BranchInfo => Boolean(b));
+  const pinnedSet = useMemo(() => new Set(pinnedBranches), [pinnedBranches]);
+  const branchByFullName = useMemo(
+    () => new Map(branches.map((b) => [b.fullName, b])),
+    [branches]
+  );
+  const pinnedBranchItems = useMemo(
+    () =>
+      pinnedBranches
+        .map((fn) => branchByFullName.get(fn))
+        .filter((b): b is BranchInfo => Boolean(b)),
+    [pinnedBranches, branchByFullName]
+  );
+  const pinnedLocalBranches = useMemo(
+    () => pinnedBranchItems.filter((b) => !b.isRemote),
+    [pinnedBranchItems]
+  );
+  const pinnedRemoteBranches = useMemo(
+    () => pinnedBranchItems.filter((b) => b.isRemote),
+    [pinnedBranchItems]
+  );
   const localBranches = useMemo(
     () =>
       branches
@@ -366,13 +380,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     () => branches.filter((b) => b.isRemote),
     [branches]
   );
+  const unpinnedLocalBranches = useMemo(
+    () => localBranches.filter((b) => !pinnedSet.has(b.fullName)),
+    [localBranches, pinnedSet]
+  );
+  const unpinnedRemoteBranches = useMemo(
+    () => remoteBranches.filter((b) => !pinnedSet.has(b.fullName)),
+    [remoteBranches, pinnedSet]
+  );
   const localTree = useMemo(
-    () => buildBranchTree(localBranches),
-    [localBranches]
+    () => buildBranchTree(unpinnedLocalBranches),
+    [unpinnedLocalBranches]
   );
   const remoteTree = useMemo(
-    () => buildBranchTree(remoteBranches),
-    [remoteBranches]
+    () => buildBranchTree(unpinnedRemoteBranches),
+    [unpinnedRemoteBranches]
   );
   const hasLocalFolders = useMemo(
     () => localTree.some((n) => !n.branch),
@@ -550,16 +572,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ↓{b.behind}
             </span>
           )}
-          {isPinned && (
-            <span
-              title="Pinned branch (right-click to unpin)"
-              className={`p-0.5 rounded inline-flex ${
-                isSelected ? "text-white" : "text-[#d97706]"
-              }`}
-            >
-              <Pin className="w-3.5 h-3.5 fill-current" />
-            </span>
-          )}
+          <button
+            type="button"
+            title={isPinned ? "Unpin branch" : "Pin branch to top"}
+            aria-label={isPinned ? "Unpin branch" : "Pin branch to top"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePinBranch(b.fullName);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className={`p-0.5 rounded cursor-pointer transition-colors ${
+              isPinned
+                ? isSelected
+                  ? "inline-flex text-white hover:bg-white/20"
+                  : "inline-flex text-[#d97706] hover:bg-[#fef3c7]"
+                : isSelected
+                ? "hidden group-hover:inline-flex text-white/85 hover:text-white hover:bg-white/20"
+                : "hidden group-hover:inline-flex text-[#64748b] hover:text-[#d97706] hover:bg-[#fef3c7]"
+            }`}
+          >
+            <Pin className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
+          </button>
           {otherWt && (
             <button
               type="button"
@@ -660,39 +693,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
+  const renderPinnedRows = (
+    items: BranchInfo[],
+    section: "local" | "remote",
+    hasTreeItems: boolean
+  ) => {
+    if (items.length === 0) return null;
+    return (
+      <div
+        className={`flex flex-col gap-0.5 ${
+          hasTreeItems ? "pb-1 mb-0.5 border-b border-[#e2e8f0]/80" : ""
+        }`}
+      >
+        {items.map((b) => renderBranchRow(b, section))}
+      </div>
+    );
+  };
+
   return (
     <aside
       style={{ width }}
       className="shrink-0 bg-[#f8fafc] flex flex-col overflow-y-auto select-none p-1.5 gap-1"
     >
-      {/* PINNED BRANCHES SECTION */}
-      {pinnedBranchItems.length > 0 && (
-        <div className="rounded-lg bg-[#fffbeb]/65 border border-[#fde68a]/80 p-1 mb-0.5">
-          <div className="flex items-center justify-between px-1 py-0.5 text-[#92400e]">
-            <button
-              onClick={() => setOpenPinned((v) => !v)}
-              className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
-            >
-              {openPinned ? (
-                <ChevronDown className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5" />
-              )}
-              <Pin className="w-3 h-3 text-[#d97706] fill-current" />
-              <span>Pinned</span>
-            </button>
-            <span className="font-mono text-[11px] text-[#b45309]">
-              {pinnedBranchItems.length}
-            </span>
-          </div>
-          {openPinned && (
-            <div className="mt-0.5 flex flex-col gap-0.5">
-              {pinnedBranchItems.map((b) => renderBranchRow(b, "pin"))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* WORKTREES */}
       <div>
         <div className="flex items-center justify-between px-1.5 py-1 text-[#64748b] hover:text-[#0b1c30]">
@@ -899,6 +921,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
+            {renderPinnedRows(
+              pinnedLocalBranches,
+              "local",
+              localTree.length > 0
+            )}
             {renderBranchTree(localTree, "local", hasLocalFolders)}
           </div>
         )}
@@ -930,7 +957,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 No remote branches
               </div>
             ) : (
-              renderBranchTree(remoteTree, "remote", hasRemoteFolders)
+              <>
+                {renderPinnedRows(
+                  pinnedRemoteBranches,
+                  "remote",
+                  remoteTree.length > 0
+                )}
+                {renderBranchTree(remoteTree, "remote", hasRemoteFolders)}
+              </>
             )}
           </div>
         )}
