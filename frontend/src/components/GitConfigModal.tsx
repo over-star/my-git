@@ -38,47 +38,35 @@ interface GitConfigModalProps {
   onNotify: (type: "success" | "error" | "info", msg: string) => void;
 }
 
-const SourceTag: React.FC<{
+const SourceBadge: React.FC<{
   scope: "local" | "global";
   localVal: string;
-  globalVal?: string;
-  emptyGlobalText?: string;
   onResetLocal?: () => void;
-}> = ({
-  scope,
-  localVal,
-  globalVal,
-  emptyGlobalText = "未设置",
-  onResetLocal,
-}) => {
+}> = ({ scope, localVal, onResetLocal }) => {
   if (scope !== "local") return null;
   const hasLocal = localVal.trim() !== "";
   if (hasLocal) {
     return (
-      <span className="inline-flex items-center gap-1">
-        <span className="px-1.5 py-[1px] rounded bg-[#e0f2fe] text-[#0369a1] text-[10px] font-medium">
-          当前仓库覆盖
+      <span className="inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+        <span className="px-1.5 py-[1px] rounded bg-[#e0f2fe] text-[#0369a1] text-[10px] font-medium whitespace-nowrap">
+          仓库覆盖
         </span>
         {onResetLocal && (
           <button
             type="button"
             onClick={onResetLocal}
-            title="清除当前仓库覆盖，恢复继承全局"
-            className="text-[10px] text-[#64748b] hover:text-[#0284c7] underline cursor-pointer"
+            title="清除当前仓库覆盖，恢复继承全局配置"
+            className="text-[11px] text-[#64748b] hover:text-[#0284c7] underline whitespace-nowrap cursor-pointer"
           >
-            恢复全局
+            恢复
           </button>
         )}
       </span>
     );
   }
-  const gText = globalVal?.trim() ? globalVal.trim() : emptyGlobalText;
   return (
-    <span
-      title={`当前未在仓库单独设置，将使用全局值：${gText}`}
-      className="px-1.5 py-[1px] rounded bg-[#f1f5f9] text-[#64748b] text-[10px] font-medium max-w-[180px] truncate"
-    >
-      继承全局: {gText}
+    <span className="px-1.5 py-[1px] rounded bg-[#f1f5f9] text-[#64748b] text-[10px] font-medium shrink-0 whitespace-nowrap">
+      继承全局
     </span>
   );
 };
@@ -266,7 +254,6 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
     }
   };
 
-  // Compute live preview of effective values in local scope
   const previewName =
     scope === "local"
       ? userName.trim() || bundle?.global.userName || ""
@@ -277,56 +264,72 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
       : userEmail.trim();
   const previewNameSource =
     scope === "local"
-      ? userName.trim()
+      ? userName.trim() || userEmail.trim()
         ? "当前仓库"
-        : bundle?.global.userName
-        ? "全局"
+        : bundle?.global.userName || bundle?.global.userEmail
+        ? "全局配置"
         : "未设置"
-      : "全局";
+      : "全局配置";
   const hasAdvancedOverrides =
     Boolean(sshCommand.trim()) ||
     Boolean(gpgSign.trim()) ||
     Boolean(signingKey.trim());
 
+  const globalPullLabel =
+    bundle?.global.pullRebase === "true"
+      ? "true (Rebase)"
+      : bundle?.global.pullRebase === "false"
+      ? "false (Merge)"
+      : "Git 默认";
+
+  const globalCrlfLabel =
+    bundle?.global.autoCrlf === "true"
+      ? "true"
+      : bundle?.global.autoCrlf === "input"
+      ? "input"
+      : bundle?.global.autoCrlf === "false"
+      ? "false"
+      : "Git 默认";
+
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-[#0f172a]/35 backdrop-blur-[2px] flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl bg-white border border-[#cbd5e1] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]"
+        className="w-full max-w-2xl bg-white border border-[#cbd5e1] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-4 py-3 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-[#0284c7] text-white flex items-center justify-center">
-              <Settings className="w-3.5 h-3.5" />
+        <div className="px-5 py-3.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-[#0284c7] text-white flex items-center justify-center shrink-0">
+              <Settings className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="text-[13px] font-semibold text-[#0b1c30]">
+            <div className="min-w-0">
+              <h2 className="text-[14px] font-semibold text-[#0b1c30]">
                 Git 配置
               </h2>
-              <p className="text-[11px] text-[#64748b]">
-                规则：当前仓库配置 (.git/config) 优先于全局配置 (~/.gitconfig)，留空即继承全局
+              <p className="text-[11px] text-[#64748b] truncate">
+                当前仓库配置 (.git/config) 优先于全局配置 (~/.gitconfig)，留空即继承全局
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-[#e2e8f0] text-[#64748b] cursor-pointer"
+            className="p-1 rounded hover:bg-[#e2e8f0] text-[#64748b] cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Scope Tabs */}
-        <div className="px-4 pt-2 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between shrink-0">
+        <div className="px-5 pt-2.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-1">
             {repo && (
               <button
                 onClick={() => setScope("local")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-[12px] font-medium border-b-2 transition-colors cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-[12px] font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
                   scope === "local"
                     ? "bg-white border-[#0284c7] text-[#0284c7]"
                     : "border-transparent text-[#64748b] hover:text-[#0b1c30]"
@@ -338,7 +341,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
             )}
             <button
               onClick={() => setScope("global")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-[12px] font-medium border-b-2 transition-colors cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-[12px] font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
                 scope === "global"
                   ? "bg-white border-[#0284c7] text-[#0284c7]"
                   : "border-transparent text-[#64748b] hover:text-[#0b1c30]"
@@ -350,7 +353,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
           </div>
 
           {scope === "global" && (
-            <div className="flex items-center gap-1.5 pb-1.5">
+            <div className="flex items-center gap-1.5 pb-1.5 shrink-0">
               <TerminalSquare className="w-3.5 h-3.5 text-[#64748b]" />
               <select
                 value={globalDistro}
@@ -369,29 +372,29 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-4 overflow-y-auto flex flex-col gap-3.5">
+        <div className="p-5 overflow-y-auto flex flex-col gap-4">
           {/* Context Banner */}
           <div
-            className={`px-3 py-2 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${
+            className={`px-3.5 py-2.5 rounded-lg border text-[12px] flex items-center justify-between gap-3 ${
               isWSLActive
                 ? "bg-[#faf5ff] border-[#ddd6fe] text-[#5b21b6]"
                 : "bg-[#f0f9ff] border-[#bae6fd] text-[#0369a1]"
             }`}
           >
-            <span className="flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5 shrink-0" />
+            <span className="flex items-center gap-2 min-w-0">
+              <Info className="w-4 h-4 shrink-0" />
               {scope === "local" ? (
-                <span>
-                  正在编辑 <strong>{repo?.name}</strong> 的独立配置（仅对本仓库生效，留空项自动沿用{" "}
-                  {repo?.isWsl ? `WSL2 · ${repo.distro}` : "Windows"} 全局配置）
+                <span className="truncate">
+                  编辑 <strong>{repo?.name}</strong> 独立配置（留空项自动继承{" "}
+                  {repo?.isWsl ? `WSL2 · ${repo.distro}` : "Windows"} 全局）
                 </span>
               ) : isWSLActive ? (
-                <span>
-                  正在编辑 WSL2 <strong>{activeDistroName}</strong> 的全局配置（~/.gitconfig）
+                <span className="truncate">
+                  编辑 WSL2 <strong>{activeDistroName}</strong> 全局配置（~/.gitconfig）
                 </span>
               ) : (
-                <span>
-                  正在编辑 <strong>Windows 本机</strong>的全局配置（~/.gitconfig）
+                <span className="truncate">
+                  编辑 <strong>Windows 本机</strong>全局配置（~/.gitconfig）
                 </span>
               )}
             </span>
@@ -399,7 +402,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
               <button
                 type="button"
                 onClick={handleClearAllLocal}
-                className="flex items-center gap-1 text-[10px] underline hover:opacity-80 shrink-0 cursor-pointer"
+                className="flex items-center gap-1 text-[11px] font-medium underline hover:opacity-80 shrink-0 whitespace-nowrap cursor-pointer"
               >
                 <RotateCcw className="w-3 h-3" />
                 全部恢复全局
@@ -408,145 +411,177 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
           </div>
 
           {loading ? (
-            <div className="py-10 text-center text-xs text-[#64748b]">
+            <div className="py-12 text-center text-xs text-[#64748b]">
               正在读取 Git 配置...
             </div>
           ) : (
             <>
-              {/* Basic Author Identity */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <label className="flex items-center gap-1 text-[11px] font-semibold text-[#475569]">
-                      <User className="w-3 h-3" />
-                      作者名称 (user.name)
-                    </label>
-                    <SourceTag
-                      scope={scope}
-                      localVal={userName}
-                      globalVal={bundle?.global.userName}
-                      onResetLocal={() => setUserName("")}
-                    />
-                  </div>
-                  <input
-                    type="text"
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                    placeholder={
-                      scope === "local" && bundle?.global.userName
-                        ? `继承全局 (${bundle.global.userName})`
-                        : "输入你的名字"
-                    }
-                    className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs outline-none"
-                  />
+              {/* Group 1: 提交作者身份 */}
+              <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc]/60 p-3.5 flex flex-col gap-3">
+                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#0b1c30]">
+                  <User className="w-3.5 h-3.5 text-[#0284c7]" />
+                  <span>提交作者身份</span>
                 </div>
-                <div>
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <label className="text-[11px] font-semibold text-[#475569]">
-                      作者邮箱 (user.email)
-                    </label>
-                    <SourceTag
-                      scope={scope}
-                      localVal={userEmail}
-                      globalVal={bundle?.global.userEmail}
-                      onResetLocal={() => setUserEmail("")}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1">
+                    <div className="h-5 flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-medium text-[#475569] whitespace-nowrap">
+                        作者名称
+                        <span className="ml-1 font-mono text-[10px] text-[#94a3b8]">
+                          user.name
+                        </span>
+                      </label>
+                      <SourceBadge
+                        scope={scope}
+                        localVal={userName}
+                        onResetLocal={() => setUserName("")}
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={userName}
+                      onChange={(e) => setUserName(e.target.value)}
+                      placeholder={
+                        scope === "local" && bundle?.global.userName
+                          ? `继承全局 (${bundle.global.userName})`
+                          : "输入作者名称"
+                      }
+                      className="w-full px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] outline-none"
                     />
+                    {scope === "local" && (
+                      <div className="text-[10px] text-[#64748b] truncate">
+                        全局默认：{bundle?.global.userName || "未设置"}
+                      </div>
+                    )}
                   </div>
-                  <input
-                    type="email"
-                    value={userEmail}
-                    onChange={(e) => setUserEmail(e.target.value)}
-                    placeholder={
-                      scope === "local" && bundle?.global.userEmail
-                        ? `继承全局 (${bundle.global.userEmail})`
-                        : "you@example.com"
-                    }
-                    className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs outline-none"
-                  />
+
+                  <div className="flex flex-col gap-1">
+                    <div className="h-5 flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-medium text-[#475569] whitespace-nowrap">
+                        作者邮箱
+                        <span className="ml-1 font-mono text-[10px] text-[#94a3b8]">
+                          user.email
+                        </span>
+                      </label>
+                      <SourceBadge
+                        scope={scope}
+                        localVal={userEmail}
+                        onResetLocal={() => setUserEmail("")}
+                      />
+                    </div>
+                    <input
+                      type="email"
+                      value={userEmail}
+                      onChange={(e) => setUserEmail(e.target.value)}
+                      placeholder={
+                        scope === "local" && bundle?.global.userEmail
+                          ? `继承全局 (${bundle.global.userEmail})`
+                          : "you@example.com"
+                      }
+                      className="w-full px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] outline-none"
+                    />
+                    {scope === "local" && (
+                      <div className="text-[10px] text-[#64748b] truncate">
+                        全局默认：{bundle?.global.userEmail || "未设置"}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Common Behavior Settings */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <label className="text-[11px] font-semibold text-[#475569]">
-                      Pull 拉取方式 (pull.rebase)
-                    </label>
-                    <SourceTag
-                      scope={scope}
-                      localVal={pullRebase}
-                      globalVal={bundle?.global.pullRebase}
-                      emptyGlobalText="Git 默认"
-                    />
-                  </div>
-                  <select
-                    value={pullRebase}
-                    onChange={(e) => setPullRebase(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs outline-none"
-                  >
-                    <option value="">
-                      {scope === "local"
-                        ? `继承全局 (${
-                            bundle?.global.pullRebase || "Git 默认"
-                          })`
-                        : "未设置 (Git 默认)"}
-                    </option>
-                    <option value="false">false (Merge 合并)</option>
-                    <option value="true">true (Rebase 变基)</option>
-                  </select>
+              {/* Group 2: 拉取与换行行为 */}
+              <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc]/60 p-3.5 flex flex-col gap-3">
+                <div className="text-[12px] font-semibold text-[#0b1c30]">
+                  拉取与换行行为
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <label className="text-[11px] font-semibold text-[#475569]">
-                      换行符处理 (core.autocrlf)
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1">
+                    <div className="h-5 flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-medium text-[#475569] whitespace-nowrap">
+                        Pull 策略
+                        <span className="ml-1 font-mono text-[10px] text-[#94a3b8]">
+                          pull.rebase
+                        </span>
+                      </label>
+                      <SourceBadge
+                        scope={scope}
+                        localVal={pullRebase}
+                        onResetLocal={() => setPullRebase("")}
+                      />
+                    </div>
+                    <select
+                      value={pullRebase}
+                      onChange={(e) => setPullRebase(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] outline-none"
+                    >
+                      <option value="">
+                        {scope === "local"
+                          ? `继承全局 (${globalPullLabel})`
+                          : "未设置 (Git 默认)"}
+                      </option>
+                      <option value="false">false (Merge 合并)</option>
+                      <option value="true">true (Rebase 变基)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <div className="h-5 flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-medium text-[#475569] whitespace-nowrap">
+                        换行符转换
+                        <span className="ml-1 font-mono text-[10px] text-[#94a3b8]">
+                          core.autocrlf
+                        </span>
+                      </label>
+                      <SourceBadge
+                        scope={scope}
+                        localVal={autoCrlf}
+                        onResetLocal={() => setAutoCrlf("")}
+                      />
+                    </div>
+                    <select
+                      value={autoCrlf}
+                      onChange={(e) => setAutoCrlf(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] outline-none"
+                    >
+                      <option value="">
+                        {scope === "local"
+                          ? `继承全局 (${globalCrlfLabel})`
+                          : "未设置 (Git 默认)"}
+                      </option>
+                      <option value="true">true (Windows 检出转 CRLF)</option>
+                      <option value="input">input (提交转 LF，WSL2 推荐)</option>
+                      <option value="false">false (不自动转换)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {scope === "global" && (
+                  <div className="flex flex-col gap-1 pt-1">
+                    <label className="text-[11px] font-medium text-[#475569]">
+                      新建仓库默认分支名
+                      <span className="ml-1 font-mono text-[10px] text-[#94a3b8]">
+                        init.defaultBranch
+                      </span>
                     </label>
-                    <SourceTag
-                      scope={scope}
-                      localVal={autoCrlf}
-                      globalVal={bundle?.global.autoCrlf}
-                      emptyGlobalText="Git 默认"
+                    <input
+                      type="text"
+                      value={defaultBranch}
+                      onChange={(e) => setDefaultBranch(e.target.value)}
+                      placeholder="main"
+                      className="w-full px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] font-mono outline-none"
                     />
                   </div>
-                  <select
-                    value={autoCrlf}
-                    onChange={(e) => setAutoCrlf(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs outline-none"
-                  >
-                    <option value="">
-                      {scope === "local"
-                        ? `继承全局 (${bundle?.global.autoCrlf || "Git 默认"})`
-                        : "未设置 (Git 默认)"}
-                    </option>
-                    <option value="true">true (Windows 检出转 CRLF)</option>
-                    <option value="input">input (提交转 LF，WSL2 推荐)</option>
-                    <option value="false">false (不自动转换)</option>
-                  </select>
-                </div>
+                )}
               </div>
 
-              {scope === "global" && (
-                <div>
-                  <label className="block text-[11px] font-semibold text-[#475569] mb-1">
-                    新建仓库默认分支名 (init.defaultBranch)
-                  </label>
-                  <input
-                    type="text"
-                    value={defaultBranch}
-                    onChange={(e) => setDefaultBranch(e.target.value)}
-                    placeholder="main"
-                    className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs font-mono outline-none"
-                  />
-                </div>
-              )}
-
-              {/* Collapsible Advanced Section */}
+              {/* Group 3: Collapsible Advanced Section */}
               <div className="rounded-lg border border-[#e2e8f0] overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setShowAdvanced((v) => !v)}
-                  className="w-full px-3 py-2 bg-[#f8fafc] hover:bg-[#f1f5f9] flex items-center justify-between text-[12px] font-medium text-[#334155] cursor-pointer"
+                  className="w-full px-3.5 py-2.5 bg-[#f8fafc] hover:bg-[#f1f5f9] flex items-center justify-between text-[12px] font-medium text-[#334155] cursor-pointer"
                 >
                   <span className="flex items-center gap-1.5">
                     {showAdvanced ? (
@@ -557,32 +592,34 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                     <span>高级设置（SSH 密钥 / 提交签名 / 远程仓库地址）</span>
                   </span>
                   {!showAdvanced && hasAdvancedOverrides && (
-                    <span className="px-1.5 py-0.5 rounded bg-[#e0f2fe] text-[#0369a1] text-[10px]">
+                    <span className="px-1.5 py-0.5 rounded bg-[#e0f2fe] text-[#0369a1] text-[10px] whitespace-nowrap">
                       已自定义
                     </span>
                   )}
                 </button>
 
                 {showAdvanced && (
-                  <div className="p-3 flex flex-col gap-3 border-t border-[#e2e8f0] bg-white">
+                  <div className="p-3.5 flex flex-col gap-3.5 border-t border-[#e2e8f0] bg-white">
                     {/* GPG Signing */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <label className="text-[11px] font-semibold text-[#475569]">
-                            提交签名 (commit.gpgsign)
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1">
+                        <div className="h-5 flex items-center justify-between gap-2">
+                          <label className="text-[11px] font-medium text-[#475569] whitespace-nowrap">
+                            提交签名
+                            <span className="ml-1 font-mono text-[10px] text-[#94a3b8]">
+                              commit.gpgsign
+                            </span>
                           </label>
-                          <SourceTag
+                          <SourceBadge
                             scope={scope}
                             localVal={gpgSign}
-                            globalVal={bundle?.global.gpgSign}
-                            emptyGlobalText="false"
+                            onResetLocal={() => setGpgSign("")}
                           />
                         </div>
                         <select
                           value={gpgSign}
                           onChange={(e) => setGpgSign(e.target.value)}
-                          className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs outline-none"
+                          className="w-full px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] outline-none"
                         >
                           <option value="">
                             {scope === "local"
@@ -593,15 +630,18 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                           <option value="false">false</option>
                         </select>
                       </div>
-                      <div>
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <label className="text-[11px] font-semibold text-[#475569]">
-                            签名密钥 (user.signingkey)
+                      <div className="flex flex-col gap-1">
+                        <div className="h-5 flex items-center justify-between gap-2">
+                          <label className="text-[11px] font-medium text-[#475569] whitespace-nowrap">
+                            签名密钥
+                            <span className="ml-1 font-mono text-[10px] text-[#94a3b8]">
+                              user.signingkey
+                            </span>
                           </label>
-                          <SourceTag
+                          <SourceBadge
                             scope={scope}
                             localVal={signingKey}
-                            globalVal={bundle?.global.signingKey}
+                            onResetLocal={() => setSigningKey("")}
                           />
                         </div>
                         <input
@@ -609,31 +649,32 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                           value={signingKey}
                           onChange={(e) => setSigningKey(e.target.value)}
                           placeholder="可选 GPG/SSH 密钥 ID"
-                          className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-xs font-mono outline-none"
+                          className="w-full px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] font-mono outline-none"
                         />
                       </div>
                     </div>
 
                     {/* SSH Key / core.sshCommand */}
-                    <div className="pt-2 border-t border-[#f1f5f9] flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between">
+                    <div className="pt-3 border-t border-[#f1f5f9] flex flex-col gap-2">
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <label className="flex items-center gap-1 text-[11px] font-semibold text-[#475569]">
-                            <KeyRound className="w-3 h-3 text-[#0284c7]" />
-                            SSH 认证命令 (core.sshCommand)
+                          <label className="flex items-center gap-1 text-[11px] font-medium text-[#475569] whitespace-nowrap">
+                            <KeyRound className="w-3.5 h-3.5 text-[#0284c7]" />
+                            SSH 认证命令
+                            <span className="font-mono text-[10px] text-[#94a3b8]">
+                              core.sshCommand
+                            </span>
                           </label>
-                          <SourceTag
+                          <SourceBadge
                             scope={scope}
                             localVal={sshCommand}
-                            globalVal={bundle?.global.sshCommand}
-                            emptyGlobalText="默认自动检测"
                             onResetLocal={() => setSshCommand("")}
                           />
                         </div>
                         <button
                           type="button"
                           onClick={() => setSshCommand("")}
-                          className="text-[10px] text-[#0284c7] hover:underline cursor-pointer"
+                          className="text-[11px] text-[#0284c7] hover:underline whitespace-nowrap cursor-pointer"
                         >
                           使用默认 SSH
                         </button>
@@ -649,7 +690,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                                 type="button"
                                 onClick={() => setSshCommand(cmdStr)}
                                 title={k.path}
-                                className={`px-2 py-0.5 rounded text-[10px] font-mono border cursor-pointer transition-colors ${
+                                className={`px-2 py-0.5 rounded text-[11px] font-mono border cursor-pointer transition-colors ${
                                   active
                                     ? "bg-[#e0f2fe] border-[#0284c7] text-[#0369a1] font-semibold"
                                     : "bg-[#f8fafc] border-[#e2e8f0] text-[#334155] hover:border-[#0284c7]"
@@ -662,7 +703,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                           })}
                         </div>
                       )}
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         <input
                           type="text"
                           value={sshCommand}
@@ -671,13 +712,13 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                             setSshTestResult(null);
                           }}
                           placeholder="默认（自动使用 ~/.ssh/id_*；WSL2 无密钥时自动回退 Windows OpenSSH）"
-                          className="flex-1 px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[11px] font-mono outline-none"
+                          className="flex-1 px-2.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[11px] font-mono outline-none"
                         />
                         <button
                           type="button"
                           disabled={testingSsh}
                           onClick={handleTestSSH}
-                          className="px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] hover:border-[#0284c7] text-[11px] font-medium text-[#0284c7] disabled:opacity-50 shrink-0 cursor-pointer"
+                          className="px-3 py-1.5 rounded-md bg-white border border-[#cbd5e1] hover:border-[#0284c7] text-[11px] font-medium text-[#0284c7] disabled:opacity-50 shrink-0 whitespace-nowrap cursor-pointer"
                         >
                           {testingSsh ? "测试中..." : "测试 SSH"}
                         </button>
@@ -697,9 +738,9 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
 
                     {/* Remotes (Local Repo Only) */}
                     {scope === "local" && repo && (
-                      <div className="pt-2 border-t border-[#f1f5f9] flex flex-col gap-1.5">
-                        <label className="flex items-center gap-1 text-[11px] font-semibold text-[#475569]">
-                          <Link2 className="w-3 h-3 text-[#0284c7]" />
+                      <div className="pt-3 border-t border-[#f1f5f9] flex flex-col gap-2">
+                        <label className="flex items-center gap-1 text-[11px] font-medium text-[#475569]">
+                          <Link2 className="w-3.5 h-3.5 text-[#0284c7]" />
                           远程仓库地址 (Remotes)
                         </label>
                         {remotes.length === 0 ? (
@@ -718,11 +759,11 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                                 key={r.name}
                                 className="flex items-center gap-1.5"
                               >
-                                <span className="px-1.5 py-1 rounded bg-[#f1f5f9] font-mono text-[11px] font-semibold text-[#0b1c30] shrink-0">
+                                <span className="px-2 py-1 rounded bg-[#f1f5f9] font-mono text-[11px] font-semibold text-[#0b1c30] shrink-0">
                                   {r.name}
                                 </span>
                                 <span
-                                  className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold shrink-0 ${
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold shrink-0 ${
                                     isSsh
                                       ? "bg-[#dcfce7] text-[#15803d]"
                                       : "bg-[#fef3c7] text-[#b45309]"
@@ -739,7 +780,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                                       [r.name]: e.target.value,
                                     }))
                                   }
-                                  className="flex-1 px-2 py-1 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[11px] font-mono outline-none"
+                                  className="flex-1 px-2.5 py-1 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[11px] font-mono outline-none"
                                 />
                                 {sshSuggestion && (
                                   <button
@@ -751,7 +792,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                                       }));
                                       handleSaveRemote(r.name, sshSuggestion);
                                     }}
-                                    className="px-2 py-1 rounded bg-[#f0f9ff] border border-[#bae6fd] hover:bg-[#e0f2fe] text-[#0369a1] text-[10px] font-medium shrink-0 cursor-pointer"
+                                    className="px-2.5 py-1 rounded bg-[#f0f9ff] border border-[#bae6fd] hover:bg-[#e0f2fe] text-[#0369a1] text-[11px] font-medium shrink-0 whitespace-nowrap cursor-pointer"
                                   >
                                     转为 SSH
                                   </button>
@@ -759,7 +800,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleSaveRemote(r.name, val)}
-                                  className="px-2 py-1 rounded bg-white border border-[#cbd5e1] hover:bg-[#f8fafc] text-[10px] font-medium text-[#334155] shrink-0 cursor-pointer"
+                                  className="px-2.5 py-1 rounded bg-white border border-[#cbd5e1] hover:bg-[#f8fafc] text-[11px] font-medium text-[#334155] shrink-0 whitespace-nowrap cursor-pointer"
                                 >
                                   更新
                                 </button>
@@ -775,19 +816,19 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
 
               {/* Effective Summary */}
               {bundle && (
-                <div className="px-3 py-2 rounded-lg bg-[#f8fafc] border border-[#e2e8f0] text-[11px] text-[#64748b] flex items-center justify-between gap-2">
+                <div className="px-3.5 py-2.5 rounded-lg bg-[#f8fafc] border border-[#e2e8f0] text-[12px] text-[#64748b] flex items-center justify-between gap-3">
                   <span className="truncate">
-                    保存后实际生效身份：
+                    当前最终生效身份：
                     <strong className="text-[#0b1c30] ml-1">
                       {previewName || "(未设置)"}{" "}
                       {previewEmail ? `<${previewEmail}>` : ""}
                     </strong>
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium shrink-0 whitespace-nowrap ${
                       previewNameSource === "当前仓库"
                         ? "bg-[#e0f2fe] text-[#0369a1]"
-                        : previewNameSource === "全局"
+                        : previewNameSource === "全局配置"
                         ? "bg-[#e2e8f0] text-[#475569]"
                         : "bg-[#fef2f2] text-[#dc2626]"
                     }`}
@@ -801,17 +842,17 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 bg-[#f8fafc] border-t border-[#e2e8f0] flex items-center justify-end gap-2 shrink-0">
+        <div className="px-5 py-3 bg-[#f8fafc] border-t border-[#e2e8f0] flex items-center justify-end gap-2 shrink-0">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 rounded bg-white border border-[#cbd5e1] hover:bg-[#f1f5f9] text-xs font-medium text-[#334155] cursor-pointer"
+            className="px-3.5 py-1.5 rounded-md bg-white border border-[#cbd5e1] hover:bg-[#f1f5f9] text-[12px] font-medium text-[#334155] cursor-pointer"
           >
             取消
           </button>
           <button
             onClick={handleSave}
             disabled={saving || loading}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-medium disabled:opacity-45 cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-[#0284c7] hover:bg-[#0369a1] text-white text-[12px] font-medium disabled:opacity-45 cursor-pointer"
           >
             <Save className="w-3.5 h-3.5" />
             {saving
