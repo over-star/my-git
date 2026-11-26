@@ -93,6 +93,14 @@ func (s *GitService) SaveLayoutState(layout store.LayoutState) {
 	s.store.SaveLayoutState(layout)
 }
 
+func (s *GitService) GetAppSettings() store.AppSettings {
+	return s.store.GetAppSettings()
+}
+
+func (s *GitService) SaveAppSettings(settings store.AppSettings) store.AppSettings {
+	return s.store.SaveAppSettings(settings)
+}
+
 // --- WSL2 Discovery & Browsing ---
 
 func (s *GitService) ListWSLDistros() ([]git.WSLDistro, error) {

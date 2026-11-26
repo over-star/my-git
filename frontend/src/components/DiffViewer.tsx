@@ -193,20 +193,23 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   if (mode === "split") {
     return (
-      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-white font-mono text-[12px] leading-[20px]">
+      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-white font-mono diff-code-font">
         <div className="grid grid-cols-2 min-w-0 divide-x divide-[#cbd5e1]">
           {/* Left (Old) */}
           <div className="min-w-0 overflow-x-auto">
             <div className="w-max min-w-full">
               {splitHunks.map((hunk, hi) => (
                 <div key={hi}>
-                  <div className="sticky top-0 z-10 h-[26px] flex items-center px-3 bg-[#f8fafc] border-y border-[#e2e8f0] text-[11px] text-[#64748b] select-text whitespace-pre">
+                  <div className="sticky top-0 z-10 min-h-[26px] py-0.5 flex items-center px-3 bg-[#f8fafc] border-y border-[#e2e8f0] text-[11px] text-[#64748b] select-text whitespace-pre">
                     {hunk.header}
                   </div>
                   {hunk.rows.map((row, ri) => (
                     <div
                       key={ri}
-                      className={`flex h-[20px] items-center ${
+                      style={{
+                        minHeight: "calc(var(--diff-font-size, 12px) + 8px)",
+                      }}
+                      className={`flex items-center ${
                         row.left?.type === "del"
                           ? "bg-[#fef2f2] text-[#7f1d1d]"
                           : row.left
@@ -249,13 +252,16 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             <div className="w-max min-w-full">
               {splitHunks.map((hunk, hi) => (
                 <div key={hi}>
-                  <div className="sticky top-0 z-10 h-[26px] flex items-center px-3 bg-[#f8fafc] border-y border-[#e2e8f0] text-[11px] text-[#64748b] select-text whitespace-pre">
+                  <div className="sticky top-0 z-10 min-h-[26px] py-0.5 flex items-center px-3 bg-[#f8fafc] border-y border-[#e2e8f0] text-[11px] text-[#64748b] select-text whitespace-pre">
                     {hunk.header}
                   </div>
                   {hunk.rows.map((row, ri) => (
                     <div
                       key={ri}
-                      className={`flex h-[20px] items-center ${
+                      style={{
+                        minHeight: "calc(var(--diff-font-size, 12px) + 8px)",
+                      }}
+                      className={`flex items-center ${
                         row.right?.type === "add"
                           ? "bg-[#f0fdf4] text-[#14532d]"
                           : row.right
@@ -298,7 +304,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   }
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 overflow-auto bg-white font-mono text-[12px] leading-[20px]">
+    <div className="flex-1 min-w-0 min-h-0 overflow-auto bg-white font-mono diff-code-font">
       <div className="w-max min-w-full">
         {hunks.map((hunk, hi) => (
           <div key={hi}>

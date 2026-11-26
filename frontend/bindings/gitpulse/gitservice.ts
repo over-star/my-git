@@ -83,6 +83,10 @@ export function Fetch(repoPath: string): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(3105763379, repoPath);
 }
 
+export function GetAppSettings(): $CancellablePromise<store$0.AppSettings> {
+    return $Call.ByID(4033644103);
+}
+
 export function GetCommitDetail(repoPath: string, hash: string): $CancellablePromise<git$0.CommitDetail> {
     return $Call.ByID(3201551583, repoPath, hash);
 }
@@ -225,6 +229,10 @@ export function ResetToCommit(repoPath: string, hash: string, mode: string): $Ca
 
 export function RevertCommit(repoPath: string, hash: string, isMerge: boolean): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(2184707978, repoPath, hash, isMerge);
+}
+
+export function SaveAppSettings(settings: store$0.AppSettings): $CancellablePromise<store$0.AppSettings> {
+    return $Call.ByID(2229920766, settings);
 }
 
 export function SaveGitConfig(upd: git$0.GitConfigUpdate): $CancellablePromise<git$0.OpResult> {

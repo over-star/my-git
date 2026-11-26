@@ -40,12 +40,14 @@ import type {
 } from "../bindings/gitpulse/internal/git/models";
 import { GitService, UpdateService } from "../bindings/gitpulse";
 import type { UpdateStatus } from "../bindings/gitpulse";
+import type { AppSettings } from "../bindings/gitpulse/internal/store/models";
 import { Sidebar } from "./components/Sidebar";
 import { ChangesView } from "./components/ChangesView";
 import { HistoryView } from "./components/HistoryView";
 import { ConflictView } from "./components/ConflictView";
 import { SplitHandle } from "./components/SplitHandle";
 import { UpdateModal } from "./components/UpdateModal";
+import { AppSettingsModal } from "./components/AppSettingsModal";
 import {
   DEFAULT_LAYOUT,
   LayoutPrefs,
@@ -73,6 +75,33 @@ import {
   RevertCommitModal,
   StashModal,
 } from "./components/Dialogs";
+
+const DEFAULT_APP_SETTINGS: AppSettings = {
+  autoCheckUpdates: true,
+  fontSize: 13,
+  diffFontSize: 12,
+  autoRefreshOnFocus: true,
+  defaultHistoryScope: "all",
+};
+
+function loadCachedAppSettings(): AppSettings {
+  try {
+    const raw = window.localStorage.getItem("mygit.appSettings");
+    if (!raw) return DEFAULT_APP_SETTINGS;
+    return { ...DEFAULT_APP_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_APP_SETTINGS;
+  }
+}
+
+function applyAppFontVars(s: AppSettings) {
+  const ui = Math.min(18, Math.max(11, s.fontSize || 13));
+  const diff = Math.min(18, Math.max(10, s.diffFontSize || 12));
+  const root = document.documentElement;
+  root.style.setProperty("--ui-font-size", `${ui}px`);
+  root.style.setProperty("--ui-font-delta", `${ui - 13}px`);
+  root.style.setProperty("--diff-font-size", `${diff}px`);
+}
 
 type ViewMode = "history" | "changes" | "conflicts";
 
@@ -202,6 +231,11 @@ export function App() {
     errorMessage: string;
   } | null>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppSettings>(() =>
+    loadCachedAppSettings()
+  );
+  const appSettingsRef = React.useRef<AppSettings>(appSettings);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     state: "idle",
     currentVersion: "0.1.0",
@@ -231,6 +265,30 @@ export function App() {
     },
     []
   );
+
+  const updateAppSettings = useCallback((patch: Partial<AppSettings>) => {
+    const next: AppSettings = { ...appSettingsRef.current, ...patch };
+    appSettingsRef.current = next;
+    setAppSettings(next);
+    applyAppFontVars(next);
+    try {
+      window.localStorage.setItem("mygit.appSettings", JSON.stringify(next));
+    } catch {
+      // ignore storage errors
+    }
+    GitService.SaveAppSettings(next)
+      .then((saved) => {
+        if (!saved) return;
+        appSettingsRef.current = saved;
+        setAppSettings(saved);
+        applyAppFontVars(saved);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    applyAppFontVars(appSettings);
+  }, []);
 
   const notify = useCallback((type: "success" | "error" | "info", text: string) => {
     const id = Date.now() + Math.random();
@@ -363,18 +421,34 @@ export function App() {
         .catch(() => {});
     });
 
-    const updateTimer = window.setTimeout(() => {
-      UpdateService.CheckForUpdate()
-        .then((st) => {
-          if (st) setUpdateStatus(st);
-        })
-        .catch(() => {});
-    }, 2500);
+    let updateTimer = 0;
+    GitService.GetAppSettings()
+      .then((loaded) => {
+        const merged = { ...DEFAULT_APP_SETTINGS, ...loaded };
+        appSettingsRef.current = merged;
+        setAppSettings(merged);
+        applyAppFontVars(merged);
+        try {
+          window.localStorage.setItem("mygit.appSettings", JSON.stringify(merged));
+        } catch {
+          // ignore
+        }
+        if (merged.autoCheckUpdates) {
+          updateTimer = window.setTimeout(() => {
+            UpdateService.CheckForUpdate()
+              .then((st) => {
+                if (st) setUpdateStatus(st);
+              })
+              .catch(() => {});
+          }, 2500);
+        }
+      })
+      .catch(() => {});
 
     return () => {
       offUpdate();
       offOpenRepo();
-      window.clearTimeout(updateTimer);
+      if (updateTimer) window.clearTimeout(updateTimer);
     };
   }, []);
 
@@ -388,8 +462,10 @@ export function App() {
 
   // Refresh whenever activePath changes
   useEffect(() => {
+    const scope =
+      appSettingsRef.current.defaultHistoryScope === "branch" ? "branch" : "all";
+    setBranchScopeMode(scope);
     setHistoryBranch("__ALL__");
-    setBranchScopeMode("all");
     setLastBranchRef("");
     setFocusCommitSignal(null);
     setStatus(null);
@@ -426,7 +502,9 @@ export function App() {
   // Auto-refresh on window focus
   useEffect(() => {
     const onFocus = () => {
-      if (activePath) refreshRepo(activePath);
+      if (activePath && appSettingsRef.current.autoRefreshOnFocus) {
+        refreshRepo(activePath);
+      }
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -1379,7 +1457,7 @@ export function App() {
                 scope: activeRepo ? "local" : "global",
               })
             }
-            title="Configure Git user.name, user.email & options (Local / Global / WSL2)"
+            title="配置 Git 作者身份与仓库选项 (Local / Global / WSL2)"
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded border text-[11px] font-medium cursor-pointer transition-colors ${
               activeRepo && !effectiveAuthor.name && !effectiveAuthor.email
                 ? "bg-[#fef2f2] border-[#fecaca] text-[#dc2626] hover:bg-[#fee2e2]"
@@ -1390,7 +1468,6 @@ export function App() {
             <span className="max-w-[140px] truncate">
               {effectiveAuthor.name || "Set Git Identity"}
             </span>
-            <Settings className="w-3 h-3 text-[#64748b]" />
           </button>
           {(updateStatus.state === "available" ||
             updateStatus.state === "downloading" ||
@@ -1424,6 +1501,18 @@ export function App() {
               )}
             </button>
           )}
+          <button
+            onClick={() => setSettingsModalOpen(true)}
+            title="软件设置（字体大小 / 检查更新 / Git 全局配置）"
+            className="relative flex items-center gap-1 px-2.5 py-1 rounded border border-[#e2e8f0] bg-white hover:bg-[#f8fafc] hover:border-[#cbd5e1] text-[11px] font-medium text-[#334155] cursor-pointer transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5 text-[#475569]" />
+            <span>设置</span>
+            {(updateStatus.state === "available" ||
+              updateStatus.state === "ready") && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#0284c7]" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -1777,6 +1866,41 @@ export function App() {
       </footer>
 
       {/* MODALS */}
+      <AppSettingsModal
+        open={settingsModalOpen}
+        settings={appSettings}
+        hasActiveRepo={Boolean(activeRepo)}
+        effectiveAuthor={effectiveAuthor}
+        updateStatus={updateStatus}
+        onClose={() => setSettingsModalOpen(false)}
+        onUpdateSettings={updateAppSettings}
+        onOpenGitConfig={(scope) => setGitConfigModal({ open: true, scope })}
+        onCheckUpdate={() => {
+          UpdateService.CheckForUpdate()
+            .then((st) => {
+              if (st) setUpdateStatus(st);
+            })
+            .catch((err) => notify("error", String(err)));
+        }}
+        onDownloadUpdate={() => {
+          UpdateService.DownloadAndInstall()
+            .then((st) => {
+              if (st) setUpdateStatus(st);
+            })
+            .catch((err) => notify("error", String(err)));
+        }}
+        onRestartUpdate={() => {
+          UpdateService.RestartAndApply().catch((err) =>
+            notify("error", `重启应用失败: ${err}`)
+          );
+        }}
+        onOpenRelease={(url) => {
+          UpdateService.OpenReleasePage(url).catch((err) =>
+            notify("error", String(err))
+          );
+        }}
+      />
+
       <UpdateModal
         open={updateModalOpen}
         status={updateStatus}

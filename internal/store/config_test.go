@@ -65,3 +65,38 @@ func TestLayoutStatePersistence(t *testing.T) {
 		t.Fatalf("layout mismatch: got %+v, want %+v", got, want)
 	}
 }
+
+func TestAppSettingsPersistence(t *testing.T) {
+	dir := t.TempDir()
+	st := &Store{
+		filePath: filepath.Join(dir, "state.json"),
+		state: AppState{
+			PinnedBranches: map[string][]string{},
+		},
+	}
+
+	def := st.GetAppSettings()
+	if !def.AutoCheckUpdates || def.FontSize != 13 || def.DiffFontSize != 12 || !def.AutoRefreshOnFocus || def.DefaultHistoryScope != "all" {
+		t.Fatalf("unexpected default settings: %+v", def)
+	}
+
+	saved := st.SaveAppSettings(AppSettings{
+		AutoCheckUpdates:    false,
+		FontSize:            15,
+		DiffFontSize:        14,
+		AutoRefreshOnFocus:  false,
+		DefaultHistoryScope: "branch",
+	})
+	if saved.AutoCheckUpdates || saved.FontSize != 15 || saved.DiffFontSize != 14 || saved.AutoRefreshOnFocus || saved.DefaultHistoryScope != "branch" {
+		t.Fatalf("unexpected saved settings: %+v", saved)
+	}
+
+	reloaded := &Store{filePath: st.filePath}
+	if err := reloaded.load(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	got := reloaded.GetAppSettings()
+	if got != saved {
+		t.Fatalf("reloaded settings mismatch: got %+v, want %+v", got, saved)
+	}
+}

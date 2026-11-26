@@ -4,6 +4,9 @@
   :root {
     --font-sans: "Geist", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
     --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+    --ui-font-size: 13px;
+    --ui-font-delta: 0px;
+    --diff-font-size: 12px;
   }
 
   html,
@@ -14,8 +17,8 @@
     margin: 0;
     padding: 0;
     font-family: var(--font-sans);
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--ui-font-size);
+    line-height: 1.45;
     color: #0b1c30;
     background-color: #f8fafc;
     overscroll-behavior: none;
@@ -27,6 +30,27 @@
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
+}
+
+.text-\[11px\] {
+  font-size: calc(11px + var(--ui-font-delta, 0px));
+}
+.text-\[12px\] {
+  font-size: calc(12px + var(--ui-font-delta, 0px));
+}
+.text-\[13px\] {
+  font-size: calc(13px + var(--ui-font-delta, 0px));
+}
+.text-\[14px\] {
+  font-size: calc(14px + var(--ui-font-delta, 0px));
+}
+.text-xs {
+  font-size: calc(12px + var(--ui-font-delta, 0px));
+}
+
+.diff-code-font {
+  font-size: var(--diff-font-size, 12px);
+  line-height: calc(var(--diff-font-size, 12px) + 8px);
 }
 
 .app-drag {

@@ -19,12 +19,56 @@ type LayoutState struct {
 	HistoryDetailLeftRatio float64 `json:"historyDetailLeftRatio,omitempty"`
 }
 
+type AppSettings struct {
+	AutoCheckUpdates    bool   `json:"autoCheckUpdates"`
+	FontSize            int    `json:"fontSize"`
+	DiffFontSize        int    `json:"diffFontSize"`
+	AutoRefreshOnFocus  bool   `json:"autoRefreshOnFocus"`
+	DefaultHistoryScope string `json:"defaultHistoryScope"`
+}
+
+func DefaultAppSettings() AppSettings {
+	return AppSettings{
+		AutoCheckUpdates:    true,
+		FontSize:            13,
+		DiffFontSize:        12,
+		AutoRefreshOnFocus:  true,
+		DefaultHistoryScope: "all",
+	}
+}
+
+func normalizeAppSettings(in AppSettings) AppSettings {
+	if in.FontSize < 11 {
+		if in.FontSize == 0 {
+			in.FontSize = 13
+		} else {
+			in.FontSize = 11
+		}
+	} else if in.FontSize > 18 {
+		in.FontSize = 18
+	}
+	if in.DiffFontSize < 10 {
+		if in.DiffFontSize == 0 {
+			in.DiffFontSize = 12
+		} else {
+			in.DiffFontSize = 10
+		}
+	} else if in.DiffFontSize > 18 {
+		in.DiffFontSize = 18
+	}
+	if in.DefaultHistoryScope != "branch" {
+		in.DefaultHistoryScope = "all"
+	}
+	return in
+}
+
 type AppState struct {
 	RecentRepos    []git.RecentRepo    `json:"recentRepos"`
 	OpenTabs       []string            `json:"openTabs"`
 	ActiveTab      string              `json:"activeTab"`
 	PinnedBranches map[string][]string `json:"pinnedBranches,omitempty"`
 	Layout         LayoutState         `json:"layout,omitempty"`
+	Settings       *AppSettings        `json:"settings,omitempty"`
 }
 
 type Store struct {
@@ -289,4 +333,22 @@ func (s *Store) SaveLayoutState(layout LayoutState) {
 	defer s.mu.Unlock()
 	s.state.Layout = layout
 	_ = s.saveLocked()
+}
+
+func (s *Store) GetAppSettings() AppSettings {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Settings == nil {
+		return DefaultAppSettings()
+	}
+	return normalizeAppSettings(*s.state.Settings)
+}
+
+func (s *Store) SaveAppSettings(settings AppSettings) AppSettings {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	norm := normalizeAppSettings(settings)
+	s.state.Settings = &norm
+	_ = s.saveLocked()
+	return norm
 }
