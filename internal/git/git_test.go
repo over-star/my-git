@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseRepoLocation(t *testing.T) {
@@ -621,5 +623,379 @@ func TestGetCommitHistoryDateOrderAndExcludeStash(t *testing.T) {
 		t.Fatalf("expected newest commit at top, got %q", hist.Commits[0].Subject)
 	}
 }
+
+func TestPushRemoteErrorClassificationAndSetRemoteURL(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := StageAll(ctx, loc); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Commit(ctx, loc, "initial commit", "", false); err != nil || !res.Success {
+		t.Fatalf("Commit failed: %+v err=%v", res, err)
+	}
+
+	// 1. No remote configured -> NO_REMOTE
+	pushRes, err := Push(ctx, loc)
+	if err != nil {
+		t.Fatalf("Push returned err=%v", err)
+	}
+	if pushRes.Success || pushRes.ErrorCode != "NO_REMOTE" {
+		t.Fatalf("expected NO_REMOTE error code on push with no remote, got %+v", pushRes)
+	}
+
+	// 2. SetRemoteURL adds origin when missing
+	missingRepo := filepath.Join(t.TempDir(), "does-not-exist.git")
+	setRes, err := SetRemoteURL(ctx, loc, "origin", missingRepo)
+	if err != nil || !setRes.Success {
+		t.Fatalf("SetRemoteURL add failed: %+v err=%v", setRes, err)
+	}
+
+	// 3. Invalid non-HTTP remote target -> REMOTE_ACCESS_ERROR
+	pushRes2, err := Push(ctx, loc)
+	if err != nil {
+		t.Fatalf("Push returned err=%v", err)
+	}
+	if pushRes2.Success || pushRes2.ErrorCode != "REMOTE_ACCESS_ERROR" {
+		t.Fatalf("expected REMOTE_ACCESS_ERROR for missing target repo, got %+v", pushRes2)
+	}
+
+	// 4. Updating existing remote to HTTPS still classifies push failures as HTTPS_REMOTE
+	setRes2, err := SetRemoteURL(ctx, loc, "origin", "https://github.com/example/nonexistent.git")
+	if err != nil || !setRes2.Success {
+		t.Fatalf("SetRemoteURL update failed: %+v err=%v", setRes2, err)
+	}
+	cls := classifyPushError(ctx, loc, "origin", "", "fatal: could not read Username", fmt.Errorf("exit 128"))
+	if cls.ErrorCode != "HTTPS_REMOTE" {
+		t.Fatalf("expected HTTPS_REMOTE, got %+v", cls)
+	}
+}
+
+func TestGetConflictFileDiff3AndResolveSide(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+	_, _, _ = RunGit(ctx, loc, "config", "merge.conflictstyle", "diff3")
+
+	_ = os.WriteFile(filepath.Join(dir, "conf.txt"), []byte("header\noriginal line\nfooter\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "base", "", false)
+
+	if res, err := CreateBranch(ctx, loc, "feat", "", true); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "conf.txt"), []byte("header\nfeat line\nfooter\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "feat change", "", false)
+
+	branches, _ := ListBranches(ctx, loc)
+	mainBranch := ""
+	for _, b := range branches {
+		if !b.IsRemote && !b.IsCurrent {
+			mainBranch = b.Name
+			break
+		}
+	}
+	_, _ = CheckoutBranch(ctx, loc, mainBranch, false)
+	_ = os.WriteFile(filepath.Join(dir, "conf.txt"), []byte("header\nmain line\nfooter\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "main change", "", false)
+
+	mRes, err := MergeBranch(ctx, loc, "feat")
+	if err != nil || mRes.ErrorCode != "CONFLICT" {
+		t.Fatalf("expected merge conflict, got %+v err=%v", mRes, err)
+	}
+
+	cf, err := GetConflictFile(ctx, loc, "conf.txt")
+	if err != nil || len(cf.Blocks) != 1 {
+		t.Fatalf("expected 1 diff3 conflict block, got %+v err=%v", cf, err)
+	}
+	b := cf.Blocks[0]
+	if len(b.OursLines) != 1 || b.OursLines[0] != "main line" {
+		t.Fatalf("expected OursLines=[main line], got %+v", b.OursLines)
+	}
+	if len(b.BaseLines) != 1 || b.BaseLines[0] != "original line" {
+		t.Fatalf("expected BaseLines=[original line], got %+v", b.BaseLines)
+	}
+	if len(b.TheirsLines) != 1 || b.TheirsLines[0] != "feat line" {
+		t.Fatalf("expected TheirsLines=[feat line], got %+v", b.TheirsLines)
+	}
+
+	resSide, err := ResolveConflictSide(ctx, loc, "conf.txt", "theirs")
+	if err != nil || !resSide.Success {
+		t.Fatalf("ResolveConflictSide failed: %+v err=%v", resSide, err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "conf.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ReplaceAll(string(data), "\r\n", "\n") != "header\nfeat line\nfooter\n" {
+		t.Fatalf("unexpected resolved file contents: %q", string(data))
+	}
+	st, err := GetRepoStatus(ctx, loc)
+	if err != nil || len(st.Conflicted) != 0 {
+		t.Fatalf("expected 0 conflicted files after ResolveConflictSide, got %+v err=%v", st, err)
+	}
+}
+
+func TestPullNoRemoteAndNoUpstreamRecovery(t *testing.T) {
+	ctx := context.Background()
+	bareDir := t.TempDir()
+	workDir := t.TempDir()
+
+	bareLoc := ParseRepoLocation(bareDir)
+	if _, stderr, err := RunGit(ctx, bareLoc, "init", "--bare"); err != nil {
+		t.Fatalf("bare init failed: %s (%v)", stderr, err)
+	}
+
+	loc, err := InitRepo(ctx, workDir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+
+	_ = os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("v1\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "init", "", false)
+
+	// 1. Fetch & Pull with no remote configured -> NO_REMOTE
+	fRes, err := Fetch(ctx, loc)
+	if err != nil || fRes.Success || fRes.ErrorCode != "NO_REMOTE" {
+		t.Fatalf("expected Fetch NO_REMOTE, got %+v err=%v", fRes, err)
+	}
+	pRes, err := Pull(ctx, loc)
+	if err != nil || pRes.Success || pRes.ErrorCode != "NO_REMOTE" {
+		t.Fatalf("expected Pull NO_REMOTE, got %+v err=%v", pRes, err)
+	}
+
+	// 2. Configure remote and push initial branch so bare remote has that branch
+	if res, err := SetRemoteURL(ctx, loc, "origin", bareDir); err != nil || !res.Success {
+		t.Fatalf("SetRemoteURL failed: %+v err=%v", res, err)
+	}
+	if pushRes, err := Push(ctx, loc); err != nil || !pushRes.Success {
+		t.Fatalf("Push failed: %+v err=%v", pushRes, err)
+	}
+
+	// Determine pushed branch name
+	bOut, _, _ := RunGit(ctx, loc, "rev-parse", "--abbrev-ref", "HEAD")
+	baseBranch := strings.TrimSpace(bOut)
+
+	// 3. Create new local branch "1" with no upstream -> Pull returns NO_UPSTREAM
+	if res, err := CreateBranch(ctx, loc, "1", "", true); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+	pRes2, err := Pull(ctx, loc)
+	if err != nil || pRes2.Success || pRes2.ErrorCode != "NO_UPSTREAM" {
+		t.Fatalf("expected Pull NO_UPSTREAM on untracked branch, got %+v err=%v", pRes2, err)
+	}
+
+	// 4. SetBranchUpstream links "1" -> "origin/<baseBranch>" and Pull then succeeds
+	upRes, err := SetBranchUpstream(ctx, loc, "1", "origin", baseBranch)
+	if err != nil || !upRes.Success {
+		t.Fatalf("SetBranchUpstream failed: %+v err=%v", upRes, err)
+	}
+	pRes3, err := Pull(ctx, loc)
+	if err != nil || !pRes3.Success {
+		t.Fatalf("expected Pull to succeed after setting upstream, got %+v err=%v", pRes3, err)
+	}
+}
+
+func TestGetMergeCommitMessage(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+
+	_ = os.WriteFile(filepath.Join(dir, "app.txt"), []byte("base\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "base", "", false)
+
+	_, _ = CreateBranch(ctx, loc, "feat", "", true)
+	_ = os.WriteFile(filepath.Join(dir, "app.txt"), []byte("feat\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "feat work", "", false)
+
+	branches, _ := ListBranches(ctx, loc)
+	mainBranch := ""
+	for _, b := range branches {
+		if !b.IsRemote && !b.IsCurrent {
+			mainBranch = b.Name
+			break
+		}
+	}
+	_, _ = CheckoutBranch(ctx, loc, mainBranch, false)
+	_ = os.WriteFile(filepath.Join(dir, "app.txt"), []byte("main\n"), 0o644)
+	_ = StageAll(ctx, loc)
+	_, _ = Commit(ctx, loc, "main work", "", false)
+
+	mRes, err := MergeBranch(ctx, loc, "feat")
+	if err != nil || mRes.ErrorCode != "CONFLICT" {
+		t.Fatalf("expected conflict, got %+v err=%v", mRes, err)
+	}
+
+	if resSide, err := ResolveConflictSide(ctx, loc, "app.txt", "ours"); err != nil || !resSide.Success {
+		t.Fatalf("ResolveConflictSide failed: %+v err=%v", resSide, err)
+	}
+
+	sum, desc, err := GetMergeCommitMessage(ctx, loc)
+	if err != nil {
+		t.Fatalf("GetMergeCommitMessage failed: %v", err)
+	}
+	if sum != "Merge branch 'feat'" {
+		t.Fatalf("expected 'Merge branch \\'feat\\'', got %q (desc=%q)", sum, desc)
+	}
+
+	// Commit with empty index diff (since ours matched HEAD) still finishes merge
+	cRes, err := Commit(ctx, loc, sum, desc, false)
+	if err != nil || !cRes.Success {
+		t.Fatalf("Commit after resolving to ours failed: %+v err=%v", cRes, err)
+	}
+	st, err := GetRepoStatus(ctx, loc)
+	if err != nil || st.MergeState != "" {
+		t.Fatalf("expected clean merge state after commit, got %+v err=%v", st, err)
+	}
+}
+
+func TestListBranchesBatchUnpushedAheadCounts(t *testing.T) {
+	ctx := context.Background()
+	bareDir := t.TempDir()
+	workDir := t.TempDir()
+
+	bareLoc := ParseRepoLocation(bareDir)
+	if _, stderr, err := RunGit(ctx, bareLoc, "init", "--bare"); err != nil {
+		t.Fatalf("bare init failed: %s (%v)", stderr, err)
+	}
+
+	loc, err := InitRepo(ctx, workDir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
+	if res, err := SetRemoteURL(ctx, loc, "origin", bareDir); err != nil || !res.Success {
+		t.Fatalf("SetRemoteURL failed: %+v err=%v", res, err)
+	}
+
+	commitFile := func(name, content, msg string) {
+		if err := os.WriteFile(filepath.Join(workDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := StageAll(ctx, loc); err != nil {
+			t.Fatal(err)
+		}
+		if res, err := Commit(ctx, loc, msg, "", false); err != nil || !res.Success {
+			t.Fatalf("Commit %q failed: %+v err=%v", msg, res, err)
+		}
+	}
+
+	// Base commit c0 -> c1 pushed to origin
+	commitFile("a.txt", "0\n", "c0")
+	// Untracked local branch pointing at ancestor of origin (ahead=0)
+	if res, err := CreateBranch(ctx, loc, "local-behind-remote", "", false); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+
+	commitFile("a.txt", "1\n", "c1")
+	if pushRes, err := Push(ctx, loc); err != nil || !pushRes.Success {
+		t.Fatalf("Push failed: %+v err=%v", pushRes, err)
+	}
+
+	// Untracked local branch at exact remote tip (ahead=0)
+	if res, err := CreateBranch(ctx, loc, "local-same-as-remote", "", false); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+
+	// Untracked branch A with 2 unpushed commits
+	if res, err := CreateBranch(ctx, loc, "local-ahead-2", "", true); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+	commitFile("b.txt", "1\n", "a1")
+	commitFile("b.txt", "2\n", "a2")
+
+	// Untracked branch B sharing a1, with its own commit b2 -> ahead=2
+	if res, err := CreateBranch(ctx, loc, "local-shared-ahead-2", "local-ahead-2~1", true); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+	commitFile("c.txt", "1\n", "b2")
+
+	// Untracked branch C merging local-ahead-2 into local-shared-ahead-2 -> a1, a2, b2, merge = ahead=4
+	if res, err := CreateBranch(ctx, loc, "local-merge-ahead-4", "", true); err != nil || !res.Success {
+		t.Fatalf("CreateBranch failed: %+v err=%v", res, err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "merge", "--no-ff", "-m", "merge a into b", "local-ahead-2"); err != nil {
+		t.Fatalf("merge failed: %s (%v)", stderr, err)
+	}
+
+	branches, err := ListBranches(ctx, loc)
+	if err != nil {
+		t.Fatalf("ListBranches failed: %v", err)
+	}
+	got := make(map[string]int)
+	for _, b := range branches {
+		if !b.IsRemote {
+			got[b.Name] = b.Ahead
+		}
+	}
+
+	want := map[string]int{
+		"local-behind-remote":  0,
+		"local-same-as-remote": 0,
+		"local-ahead-2":        2,
+		"local-shared-ahead-2": 2,
+		"local-merge-ahead-4":  4,
+	}
+	for name, expected := range want {
+		if got[name] != expected {
+			t.Errorf("branch %q Ahead = %d, want %d (all=%+v)", name, got[name], expected, got)
+		}
+	}
+}
+
+func TestFormatCommitDateAndRelativeTime(t *testing.T) {
+	now := time.Date(2026, 11, 26, 16, 20, 30, 0, time.Local)
+	if got := formatCommitDate(now, now); got != "2026-11-26 16:20:30" {
+		t.Fatalf("formatCommitDate = %q, want 2026-11-26 16:20:30", got)
+	}
+	cases := []struct {
+		delta time.Duration
+		want  string
+	}{
+		{10 * time.Second, "刚刚"},
+		{5 * time.Minute, "5 分钟前"},
+		{3 * time.Hour, "3 小时前"},
+		{24 * time.Hour, "1 天前"},
+		{45 * 24 * time.Hour, "1 个月前"},
+		{400 * 24 * time.Hour, "1 年前"},
+	}
+	for _, tc := range cases {
+		if got := formatRelativeTime(now, now.Add(-tc.delta)); got != tc.want {
+			t.Errorf("formatRelativeTime(-%v) = %q, want %q", tc.delta, got, tc.want)
+		}
+	}
+}
+
+
 
 

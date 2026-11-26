@@ -243,6 +243,13 @@ func (s *GitService) GetLastCommitMessage(repoPath string) (LastCommitMessage, e
 	return LastCommitMessage{Summary: sum, Description: desc}, err
 }
 
+func (s *GitService) GetMergeCommitMessage(repoPath string) (LastCommitMessage, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	sum, desc, err := git.GetMergeCommitMessage(ctx, git.ParseRepoLocation(repoPath))
+	return LastCommitMessage{Summary: sum, Description: desc}, err
+}
+
 func (s *GitService) GetCommitHistory(repoPath, branch, search string, skip, limit int) (git.CommitPage, error) {
 	ctx, cancel := s.ctx()
 	defer cancel()
@@ -443,6 +450,12 @@ func (s *GitService) SetRemoteURL(repoPath, name, newURL string) (git.OpResult, 
 	return git.SetRemoteURL(ctx, git.ParseRepoLocation(repoPath), name, newURL)
 }
 
+func (s *GitService) SetBranchUpstream(repoPath, localBranch, remoteName, remoteBranch string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.SetBranchUpstream(ctx, git.ParseRepoLocation(repoPath), localBranch, remoteName, remoteBranch)
+}
+
 func (s *GitService) GetConflictFile(repoPath, relPath string) (git.ConflictFileContent, error) {
 	ctx, cancel := s.ctx()
 	defer cancel()
@@ -460,6 +473,12 @@ func (s *GitService) SaveResolvedConflict(repoPath, relPath, content string, mar
 		return git.StageFile(ctx, loc, relPath)
 	}
 	return nil
+}
+
+func (s *GitService) ResolveConflictSide(repoPath, relPath, side string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.ResolveConflictSide(ctx, git.ParseRepoLocation(repoPath), relPath, side)
 }
 
 func (s *GitService) AbortMerge(repoPath string) (git.OpResult, error) {

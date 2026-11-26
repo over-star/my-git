@@ -36,6 +36,15 @@ func GetGitConfig(ctx context.Context, repoPath, distroOverride string) (GitConf
 		bundle.ScopeEnvLabel = "Windows Local"
 	}
 
+	if loc.Path != "" && strings.TrimSpace(distroOverride) == "" {
+		if global, local, effective, ok := readAllConfigScopes(ctx, loc); ok {
+			bundle.Global = global
+			bundle.Local = local
+			bundle.Effective = effective
+			return bundle, nil
+		}
+	}
+
 	bundle.Global = readConfigScope(ctx, globalLoc, "--global", true)
 
 	if loc.Path != "" {
@@ -46,6 +55,37 @@ func GetGitConfig(ctx context.Context, repoPath, distroOverride string) (GitConf
 	}
 
 	return bundle, nil
+}
+
+func readAllConfigScopes(ctx context.Context, loc RepoLocation) (global, local, effective GitIdentity, ok bool) {
+	out, _, err := RunGit(ctx, loc, "config", "--show-scope", "--list")
+	if err != nil {
+		return GitIdentity{}, GitIdentity{}, GitIdentity{}, false
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		tabIdx := strings.IndexByte(line, '\t')
+		if tabIdx <= 0 {
+			continue
+		}
+		scope := strings.ToLower(strings.TrimSpace(line[:tabIdx]))
+		kv := strings.SplitN(line[tabIdx+1:], "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		k := strings.ToLower(strings.TrimSpace(kv[0]))
+		v := strings.TrimSpace(kv[1])
+		applyConfigKeyValue(&effective, k, v)
+		switch scope {
+		case "global":
+			applyConfigKeyValue(&global, k, v)
+		case "local":
+			applyConfigKeyValue(&local, k, v)
+		}
+	}
+	return global, local, effective, true
 }
 
 func readConfigScope(ctx context.Context, loc RepoLocation, scopeFlag string, skipCD bool) GitIdentity {
@@ -77,26 +117,30 @@ func readConfigScope(ctx context.Context, loc RepoLocation, scopeFlag string, sk
 		}
 		k := strings.ToLower(strings.TrimSpace(kv[0]))
 		v := strings.TrimSpace(kv[1])
-		switch k {
-		case "user.name":
-			id.UserName = v
-		case "user.email":
-			id.UserEmail = v
-		case "init.defaultbranch":
-			id.DefaultBranch = v
-		case "core.autocrlf":
-			id.AutoCRLF = v
-		case "pull.rebase":
-			id.PullRebase = v
-		case "commit.gpgsign":
-			id.GPGSign = v
-		case "user.signingkey":
-			id.SigningKey = v
-		case "core.sshcommand":
-			id.SSHCommand = v
-		}
+		applyConfigKeyValue(&id, k, v)
 	}
 	return id
+}
+
+func applyConfigKeyValue(id *GitIdentity, k, v string) {
+	switch k {
+	case "user.name":
+		id.UserName = v
+	case "user.email":
+		id.UserEmail = v
+	case "init.defaultbranch":
+		id.DefaultBranch = v
+	case "core.autocrlf":
+		id.AutoCRLF = v
+	case "pull.rebase":
+		id.PullRebase = v
+	case "commit.gpgsign":
+		id.GPGSign = v
+	case "user.signingkey":
+		id.SigningKey = v
+	case "core.sshcommand":
+		id.SSHCommand = v
+	}
 }
 
 // SaveGitConfig writes Git configuration keys to either --local (for a repo) or --global (Windows or WSL2).

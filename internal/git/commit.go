@@ -65,6 +65,62 @@ func GetLastCommitMessage(ctx context.Context, loc RepoLocation) (string, string
 	return subject, body, nil
 }
 
+func parsePreparedCommitMsg(raw string) (string, string) {
+	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
+	var kept []string
+	for _, line := range strings.Split(normalized, "\n") {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	trimmed := strings.TrimSpace(strings.Join(kept, "\n"))
+	if trimmed == "" {
+		return "", ""
+	}
+	parts := strings.SplitN(trimmed, "\n", 2)
+	summary := strings.TrimSpace(parts[0])
+	desc := ""
+	if len(parts) > 1 {
+		desc = strings.TrimSpace(parts[1])
+	}
+	return summary, desc
+}
+
+// GetMergeCommitMessage returns Git's auto-generated commit subject & body for an in-progress merge, cherry-pick, or rebase.
+func GetMergeCommitMessage(ctx context.Context, loc RepoLocation) (string, string, error) {
+	for _, gitFile := range []string{"MERGE_MSG", "SQUASH_MSG", "rebase-merge/message"} {
+		if raw, ok := readGitPathFile(ctx, loc, gitFile); ok {
+			if sum, desc := parsePreparedCommitMsg(raw); sum != "" {
+				return sum, desc, nil
+			}
+		}
+	}
+
+	state, branch := detectMergeState(ctx, loc)
+	switch state {
+	case "cherry-pick":
+		if out, _, err := RunGit(ctx, loc, "log", "-1", "--format=%s%x1f%b", "CHERRY_PICK_HEAD"); err == nil {
+			parts := strings.SplitN(out, "\x1f", 2)
+			sum := strings.TrimSpace(parts[0])
+			desc := ""
+			if len(parts) > 1 {
+				desc = strings.TrimSpace(parts[1])
+			}
+			if sum != "" {
+				return sum, desc, nil
+			}
+		}
+	case "merge":
+		if branch != "" {
+			branch = strings.TrimPrefix(branch, "remotes/")
+			return fmt.Sprintf("Merge branch '%s'", branch), "", nil
+		}
+		return "Merge branch", "", nil
+	}
+	return "", "", nil
+}
+
 func isMissingRevisionErr(stderr string) bool {
 	low := strings.ToLower(stderr)
 	return strings.Contains(low, "unknown revision") ||
@@ -392,48 +448,34 @@ func GetCommitFileDiff(ctx context.Context, loc RepoLocation, hash, relPath stri
 
 func formatRelativeTime(now, t time.Time) string {
 	d := now.Sub(t)
-	if d < 0 {
-		return "just now"
+	if d < time.Minute {
+		return "刚刚"
 	}
 	switch {
-	case d < time.Minute:
-		return "just now"
 	case d < time.Hour:
-		m := int(d.Minutes())
-		if m == 1 {
-			return "1 minute ago"
-		}
-		return fmt.Sprintf("%d minutes ago", m)
+		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
 	case d < 24*time.Hour:
-		h := int(d.Hours())
-		if h == 1 {
-			return "1 hour ago"
-		}
-		return fmt.Sprintf("%d hours ago", h)
+		return fmt.Sprintf("%d 小时前", int(d.Hours()))
 	case d < 30*24*time.Hour:
-		days := int(d.Hours() / 24)
-		if days == 1 {
-			return "1 day ago"
-		}
-		return fmt.Sprintf("%d days ago", days)
+		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
 	case d < 365*24*time.Hour:
 		months := int(d.Hours() / (24 * 30))
-		if months <= 1 {
-			return "1 month ago"
+		if months < 1 {
+			months = 1
 		}
-		return fmt.Sprintf("%d months ago", months)
+		return fmt.Sprintf("%d 个月前", months)
 	default:
 		years := int(d.Hours() / (24 * 365))
-		if years <= 1 {
-			return "1 year ago"
+		if years < 1 {
+			years = 1
 		}
-		return fmt.Sprintf("%d years ago", years)
+		return fmt.Sprintf("%d 年前", years)
 	}
 }
 
 func formatCommitDate(now, t time.Time) string {
 	_ = now
-	return t.Format("2006-01-02 15:04")
+	return t.Format("2006-01-02 15:04:05")
 }
 
 // RevertCommit reverts a specific commit (--no-edit, and -m 1 for merge commits).

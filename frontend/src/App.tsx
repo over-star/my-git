@@ -219,6 +219,7 @@ export function App() {
   const [gitConfigModal, setGitConfigModal] = useState<{
     open: boolean;
     scope: "local" | "global";
+    expandAdvanced?: boolean;
   }>({ open: false, scope: "local" });
   const [effectiveAuthor, setEffectiveAuthor] = useState<{
     name: string;
@@ -231,6 +232,19 @@ export function App() {
     sshUrl: string;
     errorMessage: string;
   } | null>(null);
+  const [remoteConfigPrompt, setRemoteConfigPrompt] = useState<{
+    kind: "NO_REMOTE" | "REMOTE_ACCESS_ERROR" | "NO_UPSTREAM";
+    op: "fetch" | "pull" | "push" | "tag";
+    remoteName: string;
+    currentUrl: string;
+    draftUrl: string;
+    localBranch: string;
+    targetBranch: string;
+    availableRemotes: { name: string; url: string }[];
+    availableRemoteBranches: string[];
+    fetchingBranches?: boolean;
+    errorMessage: string;
+  } | null>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>(() =>
@@ -239,7 +253,7 @@ export function App() {
   const appSettingsRef = React.useRef<AppSettings>(appSettings);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     state: "idle",
-    currentVersion: "0.1.2",
+    currentVersion: "0.1.3",
     available: null,
     downloadedBytes: 0,
     totalBytes: 0,
@@ -302,72 +316,183 @@ export function App() {
   const activeRepo = tabs.find((t) => t.path === activePath) ?? null;
 
   const refreshSeqRef = React.useRef(0);
+  const repoCacheRef = React.useRef<
+    Record<
+      string,
+      {
+        status: RepoStatus | null;
+        branches: BranchInfo[];
+        tags: TagInfo[];
+        stashes: StashItem[];
+        remotes: RemoteInfo[];
+        pinnedBranches: string[];
+        effectiveAuthor: {
+          name: string;
+          email: string;
+          source: "local" | "global" | "none";
+        };
+      }
+    >
+  >({});
+
+  const updateRepoCache = useCallback(
+    (
+      repoPath: string,
+      patch: Partial<{
+        status: RepoStatus | null;
+        branches: BranchInfo[];
+        tags: TagInfo[];
+        stashes: StashItem[];
+        remotes: RemoteInfo[];
+        pinnedBranches: string[];
+        effectiveAuthor: {
+          name: string;
+          email: string;
+          source: "local" | "global" | "none";
+        };
+      }>
+    ) => {
+      const prev = repoCacheRef.current[repoPath] ?? {
+        status: null,
+        branches: [],
+        tags: [],
+        stashes: [],
+        remotes: [],
+        pinnedBranches: [],
+        effectiveAuthor: { name: "", email: "", source: "none" as const },
+      };
+      repoCacheRef.current[repoPath] = { ...prev, ...patch };
+    },
+    []
+  );
 
   const refreshRepo = useCallback(
-    async (repoPath?: string) => {
+    async (repoPath?: string, opts?: { skipHistoryBump?: boolean }) => {
       const target = repoPath ?? activePath;
       if (!target) return;
       const seq = ++refreshSeqRef.current;
       setRefreshing(true);
-      try {
-        const [st, br, tg, sh, rm, pins, cfg] = await Promise.all([
-          GitService.GetStatus(target),
-          GitService.ListBranches(target),
-          GitService.ListTags(target),
-          GitService.ListStashes(target),
-          GitService.ListRemotes(target).catch(() => [] as RemoteInfo[]),
-          GitService.GetPinnedBranches(target).catch(() => [] as string[]),
-          GitService.GetGitConfig(target, ""),
-        ]);
-        if (seq !== refreshSeqRef.current) return;
-        const nextBranches = br ?? [];
-        const nextTags = tg ?? [];
-        setStatus(st);
-        setBranches(nextBranches);
-        setTags(nextTags);
-        setStashes(sh ?? []);
-        setRemotes(rm ?? []);
-        setPinnedBranches(pins ?? []);
-        setLastBranchRefState((prev) =>
-          prev.repoPath === target &&
-          prev.ref &&
-          !nextBranches.some((b) => b.fullName === prev.ref || b.name === prev.ref)
-            ? { repoPath: target, ref: "" }
-            : prev
-        );
-        setHistoryBranchState((prev) =>
-          prev.repoPath === target &&
-          !isValidHistoryRef(prev.ref, nextBranches, nextTags)
-            ? { repoPath: target, ref: "__ALL__" }
-            : prev
-        );
-        const effName = cfg?.effective?.userName ?? "";
-        const effEmail = cfg?.effective?.userEmail ?? "";
-        const hasLocalOverride = Boolean(
-          cfg?.local?.userName || cfg?.local?.userEmail
-        );
-        setEffectiveAuthor({
-          name: effName,
-          email: effEmail,
-          source:
-            effName || effEmail
-              ? hasLocalOverride
-                ? "local"
-                : "global"
-              : "none",
-        });
+      let firstError: unknown = null;
+
+      const tasks = [
+        GitService.ListBranches(target)
+          .then((br) => {
+            if (seq !== refreshSeqRef.current) return;
+            const nextBranches = br ?? [];
+            setBranches(nextBranches);
+            updateRepoCache(target, { branches: nextBranches });
+            setLastBranchRefState((prev) =>
+              prev.repoPath === target &&
+              prev.ref &&
+              !nextBranches.some((b) => b.fullName === prev.ref || b.name === prev.ref)
+                ? { repoPath: target, ref: "" }
+                : prev
+            );
+            setHistoryBranchState((prev) =>
+              prev.repoPath === target &&
+              prev.ref !== "__ALL__" &&
+              !prev.ref.startsWith("refs/tags/") &&
+              !isValidHistoryRef(prev.ref, nextBranches, [])
+                ? { repoPath: target, ref: "__ALL__" }
+                : prev
+            );
+          })
+          .catch((err) => {
+            if (firstError === null) firstError = err;
+          }),
+
+        GitService.GetPinnedBranches(target)
+          .catch(() => [] as string[])
+          .then((pins) => {
+            if (seq !== refreshSeqRef.current) return;
+            const nextPins = pins ?? [];
+            setPinnedBranches(nextPins);
+            updateRepoCache(target, { pinnedBranches: nextPins });
+          }),
+
+        GitService.GetStatus(target)
+          .then((st) => {
+            if (seq !== refreshSeqRef.current) return;
+            setStatus(st);
+            updateRepoCache(target, { status: st });
+          })
+          .catch((err) => {
+            if (firstError === null) firstError = err;
+          }),
+
+        GitService.ListTags(target)
+          .then((tg) => {
+            if (seq !== refreshSeqRef.current) return;
+            const nextTags = tg ?? [];
+            setTags(nextTags);
+            updateRepoCache(target, { tags: nextTags });
+            setHistoryBranchState((prev) =>
+              prev.repoPath === target &&
+              prev.ref.startsWith("refs/tags/") &&
+              !isValidHistoryRef(prev.ref, [], nextTags)
+                ? { repoPath: target, ref: "__ALL__" }
+                : prev
+            );
+          })
+          .catch((err) => {
+            if (firstError === null) firstError = err;
+          }),
+
+        GitService.ListStashes(target)
+          .then((sh) => {
+            if (seq !== refreshSeqRef.current) return;
+            const nextStashes = sh ?? [];
+            setStashes(nextStashes);
+            updateRepoCache(target, { stashes: nextStashes });
+          })
+          .catch((err) => {
+            if (firstError === null) firstError = err;
+          }),
+
+        GitService.ListRemotes(target)
+          .catch(() => [] as RemoteInfo[])
+          .then((rm) => {
+            if (seq !== refreshSeqRef.current) return;
+            const nextRemotes = rm ?? [];
+            setRemotes(nextRemotes);
+            updateRepoCache(target, { remotes: nextRemotes });
+          }),
+
+        GitService.GetGitConfig(target, "")
+          .then((cfg) => {
+            if (seq !== refreshSeqRef.current) return;
+            const effName = cfg?.effective?.userName ?? "";
+            const effEmail = cfg?.effective?.userEmail ?? "";
+            const hasLocalOverride = Boolean(
+              cfg?.local?.userName || cfg?.local?.userEmail
+            );
+            const nextAuthor = {
+              name: effName,
+              email: effEmail,
+              source: (effName || effEmail
+                ? hasLocalOverride
+                  ? "local"
+                  : "global"
+                : "none") as "local" | "global" | "none",
+            };
+            setEffectiveAuthor(nextAuthor);
+            updateRepoCache(target, { effectiveAuthor: nextAuthor });
+          })
+          .catch((err) => {
+            if (firstError === null) firstError = err;
+          }),
+      ];
+
+      await Promise.allSettled(tasks);
+      if (seq !== refreshSeqRef.current) return;
+      if (firstError !== null) {
+        notify("error", `Refresh failed: ${firstError}`);
+      } else if (!opts?.skipHistoryBump) {
         setHistoryRefreshKey((k) => k + 1);
-      } catch (err) {
-        if (seq === refreshSeqRef.current) {
-          notify("error", `Refresh failed: ${err}`);
-        }
-      } finally {
-        if (seq === refreshSeqRef.current) {
-          setRefreshing(false);
-        }
       }
+      setRefreshing(false);
     },
-    [activePath, notify]
+    [activePath, notify, updateRepoCache]
   );
 
   // Restore saved tabs & layout on startup
@@ -390,13 +515,13 @@ export function App() {
           setRepoModalOpen(true);
           return;
         }
+        const results = await Promise.allSettled(
+          paths.map((p) => GitService.OpenRepo(p))
+        );
         const loaded: RepoLocation[] = [];
-        for (const p of paths) {
-          try {
-            const loc = await GitService.OpenRepo(p);
-            loaded.push(loc);
-          } catch {
-            // Skip deleted/unavailable repos silently
+        for (const r of results) {
+          if (r.status === "fulfilled") {
+            loaded.push(r.value);
           }
         }
         if (loaded.length === 0) {
@@ -480,16 +605,27 @@ export function App() {
     setHistoryBranch("__ALL__");
     setLastBranchRef("");
     setFocusCommitSignal(null);
-    setStatus(null);
-    setBranches([]);
-    setTags([]);
-    setStashes([]);
-    setRemotes([]);
-    setPinnedBranches([]);
+    const cached = activePath ? repoCacheRef.current[activePath] : undefined;
+    if (cached) {
+      setStatus(cached.status);
+      setBranches(cached.branches);
+      setTags(cached.tags);
+      setStashes(cached.stashes);
+      setRemotes(cached.remotes);
+      setPinnedBranches(cached.pinnedBranches);
+      setEffectiveAuthor(cached.effectiveAuthor);
+    } else {
+      setStatus(null);
+      setBranches([]);
+      setTags([]);
+      setStashes([]);
+      setRemotes([]);
+      setPinnedBranches([]);
+    }
     setRepoSwitcherOpen(false);
     setTabCtxMenu(null);
     if (activePath) {
-      refreshRepo(activePath);
+      refreshRepo(activePath, { skipHistoryBump: true });
     }
   }, [activePath]);
 
@@ -537,6 +673,7 @@ export function App() {
   }, []);
 
   const handleOpenedRepo = (loc: RepoLocation) => {
+    const isSameActive = loc.path === activePath;
     setTabs((prev) => {
       const idx = prev.findIndex((t) => t.path === loc.path);
       if (idx >= 0) {
@@ -548,10 +685,13 @@ export function App() {
     });
     setActivePath(loc.path);
     setRepoModalOpen(false);
-    refreshRepo(loc.path);
+    if (isSameActive) {
+      refreshRepo(loc.path);
+    }
   };
 
   const closeTabByPath = (repoPath: string) => {
+    delete repoCacheRef.current[repoPath];
     setTabs((prev) => {
       const next = prev.filter((t) => t.path !== repoPath);
       if (activePath === repoPath) {
@@ -563,6 +703,8 @@ export function App() {
   };
 
   const closeOtherTabs = (keepPath: string) => {
+    const keepCache = repoCacheRef.current[keepPath];
+    repoCacheRef.current = keepCache ? { [keepPath]: keepCache } : {};
     setTabs((prev) => prev.filter((t) => t.path === keepPath));
     setActivePath(keepPath);
   };
@@ -598,6 +740,73 @@ export function App() {
     return false;
   };
 
+  const promptRemoteConfigIfNeeded = async (
+    repoPath: string,
+    op: "fetch" | "pull" | "push" | "tag",
+    errorCode: string | undefined,
+    errorMessage: string,
+    preferredRemote?: string
+  ): Promise<boolean> => {
+    if (
+      errorCode !== "NO_REMOTE" &&
+      errorCode !== "REMOTE_ACCESS_ERROR" &&
+      errorCode !== "NO_UPSTREAM"
+    ) {
+      return false;
+    }
+    const [list, brs] = await Promise.all([
+      GitService.ListRemotes(repoPath).catch(() => []),
+      errorCode === "NO_UPSTREAM"
+        ? GitService.ListBranches(repoPath).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    const availableRemotes = (list ?? []).map((r) => ({
+      name: r.name,
+      url: r.pushUrl || r.fetchUrl || "",
+    }));
+    const match =
+      availableRemotes.find((r) =>
+        preferredRemote ? r.name === preferredRemote : r.name === "origin"
+      ) ?? availableRemotes[0];
+    const remoteName = match?.name || preferredRemote || "origin";
+    const currentUrl = match?.url || "";
+
+    const curBranch =
+      (status?.branch && status.branch !== "HEAD" ? status.branch : "") || "";
+    const remoteBranches = (brs ?? [])
+      .filter((b) => b.isRemote && (!remoteName || b.remoteName === remoteName))
+      .map((b) =>
+        b.name.startsWith(`${remoteName}/`)
+          ? b.name.slice(remoteName.length + 1)
+          : b.name
+      );
+    const defaultTarget =
+      (curBranch && remoteBranches.includes(curBranch) ? curBranch : "") ||
+      curBranch ||
+      remoteBranches[0] ||
+      "main";
+
+    // If remote list is completely empty, treat NO_UPSTREAM as NO_REMOTE
+    const resolvedKind =
+      errorCode === "NO_UPSTREAM" && availableRemotes.length === 0
+        ? "NO_REMOTE"
+        : errorCode;
+
+    setRemoteConfigPrompt({
+      kind: resolvedKind,
+      op,
+      remoteName,
+      currentUrl,
+      draftUrl: currentUrl,
+      localBranch: curBranch,
+      targetBranch: defaultTarget,
+      availableRemotes,
+      availableRemoteBranches: remoteBranches,
+      errorMessage,
+    });
+    return true;
+  };
+
   // --- Remote Actions ---
   const handleRemote = async (op: "fetch" | "pull" | "push") => {
     if (!activeRepo || remoteBusy) return;
@@ -624,6 +833,15 @@ export function App() {
         ))
       ) {
         // Modal displayed
+      } else if (
+        await promptRemoteConfigIfNeeded(
+          activeRepo.path,
+          op,
+          res.errorCode,
+          res.output || res.message || `${op} failed`
+        )
+      ) {
+        // Remote config modal displayed
       } else {
         notify("error", res.message || `${op} failed`);
       }
@@ -911,6 +1129,16 @@ export function App() {
         ))
       ) {
         // HTTPS prompt opened
+      } else if (
+        await promptRemoteConfigIfNeeded(
+          activeRepo.path,
+          "tag",
+          res.errorCode,
+          res.output || res.message || "Push tag failed",
+          remoteName
+        )
+      ) {
+        // Remote config modal displayed
       } else {
         notify("error", res.message || "Push tag failed");
       }
@@ -923,7 +1151,18 @@ export function App() {
 
   const handleRequestPushTag = (tag: TagInfo) => {
     if (remotes.length === 0) {
-      notify("error", "No remote configured for this repository");
+      setRemoteConfigPrompt({
+        kind: "NO_REMOTE",
+        op: "tag",
+        remoteName: "origin",
+        currentUrl: "",
+        draftUrl: "",
+        localBranch: "",
+        targetBranch: "main",
+        availableRemotes: [],
+        availableRemoteBranches: [],
+        errorMessage: "当前仓库尚未配置远程仓库 (origin)，无法推送标签。",
+      });
       return;
     }
     if (remotes.length === 1) {
@@ -963,6 +1202,16 @@ export function App() {
             remRes.message || "Delete remote tag failed",
             remoteName
           ))
+        ) {
+          notify("info", `Deleted local tag ${tagName}`);
+        } else if (
+          await promptRemoteConfigIfNeeded(
+            activeRepo.path,
+            "tag",
+            remRes.errorCode,
+            remRes.output || remRes.message || "Delete remote tag failed",
+            remoteName
+          )
         ) {
           notify("info", `Deleted local tag ${tagName}`);
         } else {
@@ -1005,6 +1254,16 @@ export function App() {
         ))
       ) {
         // HTTPS prompt opened
+      } else if (
+        await promptRemoteConfigIfNeeded(
+          activeRepo.path,
+          "tag",
+          res.errorCode,
+          res.output || res.message || "Delete remote tag failed",
+          remoteName
+        )
+      ) {
+        // Remote config modal displayed
       } else {
         notify("error", res.message || "Delete remote tag failed");
       }
@@ -1671,7 +1930,9 @@ export function App() {
                     activeRepo.path,
                     fullName
                   );
-                  setPinnedBranches(next ?? []);
+                  const nextPins = next ?? [];
+                  setPinnedBranches(nextPins);
+                  updateRepoCache(activeRepo.path, { pinnedBranches: nextPins });
                 } catch (err) {
                   notify("error", `Pin branch failed: ${err}`);
                 }
@@ -2156,6 +2417,7 @@ export function App() {
         open={gitConfigModal.open}
         repo={activeRepo}
         initialScope={gitConfigModal.scope}
+        initialExpandAdvanced={gitConfigModal.expandAdvanced}
         onClose={() => setGitConfigModal((m) => ({ ...m, open: false }))}
         onSaved={(msg) => {
           notify("success", msg);
@@ -2163,6 +2425,372 @@ export function App() {
         }}
         onNotify={notify}
       />
+
+      {remoteConfigPrompt && activeRepo && (
+        <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white border border-[#cbd5e1] rounded-xl shadow-xl p-4 flex flex-col gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#fef3c7] text-[#d97706] flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold text-[#0b1c30]">
+                  {remoteConfigPrompt.kind === "NO_REMOTE"
+                    ? "未配置远程仓库"
+                    : remoteConfigPrompt.kind === "NO_UPSTREAM"
+                    ? "未配置分支上游跟踪 (Upstream)"
+                    : "无法访问远程仓库"}
+                </h3>
+                <p className="text-xs text-[#64748b] mt-1">
+                  {remoteConfigPrompt.kind === "NO_REMOTE"
+                    ? `当前仓库尚未配置远程地址 (${remoteConfigPrompt.remoteName})，请填写远程仓库地址后再执行操作：`
+                    : remoteConfigPrompt.kind === "NO_UPSTREAM"
+                    ? `当前分支${
+                        remoteConfigPrompt.localBranch
+                          ? ` "${remoteConfigPrompt.localBranch}" `
+                          : ""
+                      }尚未关联远程跟踪分支，请指定要关联并拉取的远程仓库与分支：`
+                    : `无法读取或推送到远程仓库 ${remoteConfigPrompt.remoteName}，请检查远程地址是否正确、仓库是否存在以及 SSH 访问权限是否已配置：`}
+                </p>
+
+                {remoteConfigPrompt.kind === "NO_UPSTREAM" ? (
+                  <div className="mt-2.5 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-28 shrink-0">
+                        <label className="block text-[10.5px] font-medium text-[#475569] mb-1">
+                          远程仓库
+                        </label>
+                        {remoteConfigPrompt.availableRemotes.length > 1 ? (
+                          <select
+                            value={remoteConfigPrompt.remoteName}
+                            onChange={async (e) => {
+                              const nextRemote = e.target.value;
+                              const brs = await GitService.ListBranches(
+                                activeRepo.path
+                              ).catch(() => []);
+                              const remBranches = (brs ?? [])
+                                .filter(
+                                  (b) =>
+                                    b.isRemote && b.remoteName === nextRemote
+                                )
+                                .map((b) =>
+                                  b.name.startsWith(`${nextRemote}/`)
+                                    ? b.name.slice(nextRemote.length + 1)
+                                    : b.name
+                                );
+                              setRemoteConfigPrompt((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      remoteName: nextRemote,
+                                      availableRemoteBranches: remBranches,
+                                    }
+                                  : prev
+                              );
+                            }}
+                            className="w-full px-2 py-1.5 rounded bg-white border border-[#cbd5e1] text-[12px] font-mono outline-none"
+                          >
+                            {remoteConfigPrompt.availableRemotes.map((r) => (
+                              <option key={r.name} value={r.name}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="px-2.5 py-1.5 rounded bg-[#f1f5f9] border border-[#e2e8f0] font-mono text-[12px] font-semibold text-[#0b1c30] truncate">
+                            {remoteConfigPrompt.remoteName}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10.5px] font-medium text-[#475569]">
+                            目标远程分支 (将关联{" "}
+                            <code className="font-mono">
+                              {remoteConfigPrompt.remoteName}/
+                              {remoteConfigPrompt.targetBranch || "<branch>"}
+                            </code>
+                            )
+                          </label>
+                          <button
+                            type="button"
+                            disabled={remoteConfigPrompt.fetchingBranches}
+                            onClick={async () => {
+                              setRemoteConfigPrompt((prev) =>
+                                prev
+                                  ? { ...prev, fetchingBranches: true }
+                                  : prev
+                              );
+                              const fRes = await GitService.Fetch(
+                                activeRepo.path
+                              ).catch(() => null);
+                              if (fRes && !fRes.success) {
+                                setRemoteConfigPrompt((prev) =>
+                                  prev
+                                    ? { ...prev, fetchingBranches: false }
+                                    : prev
+                                );
+                                await promptRemoteConfigIfNeeded(
+                                  activeRepo.path,
+                                  remoteConfigPrompt.op,
+                                  fRes.errorCode,
+                                  fRes.output || fRes.message
+                                );
+                                return;
+                              }
+                              const brs = await GitService.ListBranches(
+                                activeRepo.path
+                              ).catch(() => []);
+                              const remBranches = (brs ?? [])
+                                .filter(
+                                  (b) =>
+                                    b.isRemote &&
+                                    b.remoteName ===
+                                      remoteConfigPrompt.remoteName
+                                )
+                                .map((b) =>
+                                  b.name.startsWith(
+                                    `${remoteConfigPrompt.remoteName}/`
+                                  )
+                                    ? b.name.slice(
+                                        remoteConfigPrompt.remoteName.length + 1
+                                      )
+                                    : b.name
+                                );
+                              setRemoteConfigPrompt((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      fetchingBranches: false,
+                                      availableRemoteBranches: remBranches,
+                                      targetBranch:
+                                        (prev.localBranch &&
+                                        remBranches.includes(prev.localBranch)
+                                          ? prev.localBranch
+                                          : "") ||
+                                        remBranches[0] ||
+                                        prev.targetBranch,
+                                    }
+                                  : prev
+                              );
+                            }}
+                            className="text-[10.5px] text-[#0284c7] hover:underline disabled:opacity-50 cursor-pointer"
+                          >
+                            {remoteConfigPrompt.fetchingBranches
+                              ? "正在获取..."
+                              : "刷新远程分支"}
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          autoFocus
+                          placeholder="例如 main 或 master"
+                          value={remoteConfigPrompt.targetBranch}
+                          onChange={(e) =>
+                            setRemoteConfigPrompt((prev) =>
+                              prev
+                                ? { ...prev, targetBranch: e.target.value }
+                                : prev
+                            )
+                          }
+                          className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] font-mono outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {remoteConfigPrompt.availableRemoteBranches.length > 0 && (
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span className="text-[10.5px] text-[#64748b]">
+                          已有远程分支：
+                        </span>
+                        {remoteConfigPrompt.availableRemoteBranches
+                          .slice(0, 8)
+                          .map((b) => (
+                            <button
+                              key={b}
+                              type="button"
+                              onClick={() =>
+                                setRemoteConfigPrompt((prev) =>
+                                  prev ? { ...prev, targetBranch: b } : prev
+                                )
+                              }
+                              className={`px-1.5 py-0.5 rounded font-mono text-[10.5px] border cursor-pointer ${
+                                remoteConfigPrompt.targetBranch === b
+                                  ? "bg-[#e0f2fe] border-[#7dd3fc] text-[#0369a1] font-semibold"
+                                  : "bg-[#f8fafc] border-[#e2e8f0] hover:bg-[#f1f5f9] text-[#475569]"
+                              }`}
+                            >
+                              {remoteConfigPrompt.remoteName}/{b}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-2.5 flex flex-col gap-1.5">
+                    <label className="text-[11px] font-medium text-[#334155]">
+                      远程仓库地址 ({remoteConfigPrompt.remoteName})
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-1.5 rounded bg-[#f1f5f9] font-mono text-[11px] font-semibold text-[#0b1c30] shrink-0">
+                        {remoteConfigPrompt.remoteName}
+                      </span>
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="git@github.com:user/repo.git 或 https://..."
+                        value={remoteConfigPrompt.draftUrl}
+                        onChange={(e) =>
+                          setRemoteConfigPrompt((prev) =>
+                            prev ? { ...prev, draftUrl: e.target.value } : prev
+                          )
+                        }
+                        className="flex-1 px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[12px] font-mono outline-none"
+                      />
+                      {httpsToSshUrl(remoteConfigPrompt.draftUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const ssh = httpsToSshUrl(
+                              remoteConfigPrompt.draftUrl
+                            );
+                            if (!ssh) return;
+                            setRemoteConfigPrompt((prev) =>
+                              prev ? { ...prev, draftUrl: ssh } : prev
+                            );
+                          }}
+                          className="px-2 py-1.5 rounded bg-[#f0f9ff] border border-[#bae6fd] hover:bg-[#e0f2fe] text-[#0369a1] text-[11px] font-medium shrink-0 cursor-pointer"
+                        >
+                          转为 SSH
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {remoteConfigPrompt.errorMessage && (
+                  <pre className="mt-2.5 p-2 rounded bg-[#fef2f2] border border-[#fecaca] text-[10px] font-mono text-[#991b1b] whitespace-pre-wrap max-h-24 overflow-y-auto select-text">
+                    {remoteConfigPrompt.errorMessage}
+                  </pre>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setRemoteConfigPrompt(null);
+                  setGitConfigModal({
+                    open: true,
+                    scope: "local",
+                    expandAdvanced: true,
+                  });
+                }}
+                className="px-3 py-1.5 rounded bg-[#f8fafc] border border-[#cbd5e1] hover:bg-[#f1f5f9] text-[#334155] text-xs font-medium cursor-pointer"
+              >
+                配置 SSH / Git
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRemoteConfigPrompt(null)}
+                  className="px-3 py-1.5 rounded bg-white border border-[#e2e8f0] hover:bg-[#f8fafc] text-xs font-medium cursor-pointer"
+                >
+                  取消
+                </button>
+                {remoteConfigPrompt.kind === "NO_UPSTREAM" ? (
+                  <button
+                    type="button"
+                    disabled={!remoteConfigPrompt.targetBranch.trim()}
+                    onClick={async () => {
+                      const p = remoteConfigPrompt;
+                      const branchTarget = p.targetBranch.trim();
+                      if (!branchTarget) return;
+                      setRemoteConfigPrompt(null);
+                      notify(
+                        "info",
+                        `正在关联 ${p.remoteName}/${branchTarget}...`
+                      );
+                      const upRes = await GitService.SetBranchUpstream(
+                        activeRepo.path,
+                        p.localBranch,
+                        p.remoteName,
+                        branchTarget
+                      );
+                      if (!upRes.success) {
+                        const handled = await promptRemoteConfigIfNeeded(
+                          activeRepo.path,
+                          p.op,
+                          upRes.errorCode,
+                          upRes.output ||
+                            upRes.message ||
+                            "设置上游分支失败",
+                          p.remoteName
+                        );
+                        if (!handled) {
+                          notify(
+                            "error",
+                            upRes.message || "设置上游跟踪分支失败"
+                          );
+                        }
+                        return;
+                      }
+                      await refreshRepo(activeRepo.path);
+                      if (p.op === "pull" || p.op === "push" || p.op === "fetch") {
+                        await handleRemote(p.op);
+                      } else {
+                        notify("success", upRes.message);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 text-white text-xs font-medium cursor-pointer"
+                  >
+                    关联并重试拉取
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!remoteConfigPrompt.draftUrl.trim()}
+                    onClick={async () => {
+                      const p = remoteConfigPrompt;
+                      const targetUrl = p.draftUrl.trim();
+                      if (!targetUrl) return;
+                      setRemoteConfigPrompt(null);
+                      const setRes = await GitService.SetRemoteURL(
+                        activeRepo.path,
+                        p.remoteName,
+                        targetUrl
+                      );
+                      if (!setRes.success) {
+                        notify("error", setRes.message || "保存远程仓库地址失败");
+                        return;
+                      }
+                      await refreshRepo(activeRepo.path);
+                      if (p.op === "tag") {
+                        notify(
+                          "success",
+                          `已保存远程仓库 ${p.remoteName}，请重试标签操作`
+                        );
+                        return;
+                      }
+                      notify("info", `已配置 ${p.remoteName}，正在重试...`);
+                      await handleRemote(p.op);
+                    }}
+                    className="px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 text-white text-xs font-medium cursor-pointer"
+                  >
+                    {remoteConfigPrompt.op === "push"
+                      ? "保存并重试推送"
+                      : remoteConfigPrompt.op === "pull"
+                      ? "保存并重试拉取"
+                      : remoteConfigPrompt.op === "fetch"
+                      ? "保存并重试获取"
+                      : "保存远程地址"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {httpsRemotePrompt && activeRepo && (
         <div className="fixed inset-0 z-50 bg-[#0f172a]/30 backdrop-blur-[2px] flex items-center justify-center p-4">

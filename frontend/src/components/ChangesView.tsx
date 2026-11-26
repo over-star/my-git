@@ -78,6 +78,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   const [committing, setCommitting] = useState(false);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [abortConfirmOpen, setAbortConfirmOpen] = useState(false);
+  const autoFilledMergeKeyRef = useRef("");
 
   const leftColRef = useRef<HTMLDivElement>(null);
   const rightColRef = useRef<HTMLDivElement>(null);
@@ -321,6 +322,33 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
     }
   };
 
+  const mergeState = status?.mergeState ?? "";
+  const mergeBranch = status?.mergeBranch ?? "";
+
+  useEffect(() => {
+    if (!mergeState) {
+      autoFilledMergeKeyRef.current = "";
+      return;
+    }
+    const mergeKey = `${repo.path}::${mergeState}::${mergeBranch}`;
+    if (autoFilledMergeKeyRef.current === mergeKey) return;
+    autoFilledMergeKeyRef.current = mergeKey;
+    if (amend) return;
+
+    GitService.GetMergeCommitMessage(repo.path)
+      .then((msg) => {
+        if (msg.summary) {
+          setSummary((cur) => (cur.trim() ? cur : msg.summary));
+        }
+        if (msg.description) {
+          setDescription((cur) => (cur.trim() ? cur : msg.description));
+        }
+      })
+      .catch(() => {
+        // Ignore if MERGE_MSG unavailable
+      });
+  }, [repo.path, mergeState, mergeBranch, amend]);
+
   const handleToggleAmend = async (checked: boolean) => {
     setAmend(checked);
     if (checked && !summary.trim()) {
@@ -334,8 +362,11 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
     }
   };
 
+  const hasCommitPayload =
+    staged.length > 0 || (mergeState !== "" && conflicted.length === 0);
+
   const handleCommit = async () => {
-    if (!summary.trim() || staged.length === 0) return;
+    if (!summary.trim() || !hasCommitPayload) return;
     setCommitting(true);
     try {
       const res = await GitService.Commit(
@@ -356,6 +387,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
         setSummary("");
         setDescription("");
         setAmend(false);
+        autoFilledMergeKeyRef.current = "";
         await onRefresh();
       }
     } catch (err) {
@@ -381,7 +413,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   };
 
   const summaryTooLong = summary.length > 50;
-  const commitDisabled = committing || staged.length === 0 || !summary.trim();
+  const commitDisabled = committing || !hasCommitPayload || !summary.trim();
 
   const applyRepoConfigKey = async (key: string, value: string) => {
     const res = await GitService.SetRepoConfigKey(repo.path, key, value);
@@ -411,10 +443,22 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
               </strong>{" "}
               {conflicted.length > 0
                 ? `${conflicted.length} conflicted file(s) require resolution.`
-                : "All conflicts resolved. Stage files and commit to finish."}
+                : "所有冲突已解决，已自动生成合并提交信息，可确认后直接提交完成合并。"}
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {conflicted.length === 0 && mergeState !== "" && !summary.trim() && (
+              <button
+                onClick={async () => {
+                  const msg = await GitService.GetMergeCommitMessage(repo.path).catch(() => null);
+                  if (msg?.summary) setSummary(msg.summary);
+                  if (msg?.description) setDescription(msg.description);
+                }}
+                className="px-2.5 py-1 rounded text-[11px] font-medium bg-white border border-[#bae6fd] text-[#0369a1] hover:bg-[#f0f9ff] transition-colors cursor-pointer"
+              >
+                填入合并提交信息
+              </button>
+            )}
             {conflicted.length > 0 && (
               <button
                 onClick={onOpenConflictResolver}
@@ -866,6 +910,8 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                   ? "Committing..."
                   : amend
                   ? "Amend Commit"
+                  : mergeState === "merge"
+                  ? "Commit Merge"
                   : `Commit to ${status?.branch || "HEAD"}`}
               </button>
             </div>

@@ -33,6 +33,7 @@ interface GitConfigModalProps {
   open: boolean;
   repo: RepoLocation | null;
   initialScope?: "local" | "global";
+  initialExpandAdvanced?: boolean;
   onClose: () => void;
   onSaved: (msg: string) => void;
   onNotify: (type: "success" | "error" | "info", msg: string) => void;
@@ -75,6 +76,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
   open,
   repo,
   initialScope,
+  initialExpandAdvanced,
   onClose,
   onSaved,
   onNotify,
@@ -110,7 +112,7 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
     const defaultScope = repo ? initialScope ?? "local" : "global";
     setScope(defaultScope);
     setGlobalDistro(repo?.isWsl ? repo.distro : "");
-    setShowAdvanced(false);
+    setShowAdvanced(Boolean(initialExpandAdvanced));
 
     GitService.ListWSLDistros()
       .then((list) => setDistros(list ?? []))
@@ -744,8 +746,40 @@ export const GitConfigModal: React.FC<GitConfigModalProps> = ({
                           远程仓库地址 (Remotes)
                         </label>
                         {remotes.length === 0 ? (
-                          <div className="text-[11px] text-[#94a3b8]">
-                            未配置远程仓库。
+                          <div className="flex flex-col gap-1.5">
+                            <div className="text-[11px] text-[#94a3b8]">
+                              当前未配置远程仓库，可在此直接添加 <code className="font-mono text-[#0b1c30]">origin</code>：
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-2 py-1 rounded bg-[#f1f5f9] font-mono text-[11px] font-semibold text-[#0b1c30] shrink-0">
+                                origin
+                              </span>
+                              <input
+                                type="text"
+                                placeholder="git@github.com:user/repo.git 或 https://..."
+                                value={remoteDrafts["origin"] ?? ""}
+                                onChange={(e) =>
+                                  setRemoteDrafts((d) => ({
+                                    ...d,
+                                    origin: e.target.value,
+                                  }))
+                                }
+                                className="flex-1 px-2.5 py-1 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] text-[11px] font-mono outline-none"
+                              />
+                              <button
+                                type="button"
+                                disabled={!(remoteDrafts["origin"] ?? "").trim()}
+                                onClick={() =>
+                                  handleSaveRemote(
+                                    "origin",
+                                    (remoteDrafts["origin"] ?? "").trim()
+                                  )
+                                }
+                                className="px-2.5 py-1 rounded bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 text-white text-[11px] font-medium shrink-0 whitespace-nowrap cursor-pointer"
+                              >
+                                添加 origin
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           remotes.map((r) => {

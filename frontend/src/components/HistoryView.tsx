@@ -633,7 +633,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </div>
           <div className="flex-1 min-w-0 pl-2">Description & Refs</div>
           <div className="w-40 shrink-0">Author</div>
-          <div className="w-48 shrink-0">Date</div>
+          <div
+            style={{ width: "calc(228px + var(--ui-font-delta, 0px) * 12)" }}
+            className="shrink-0"
+          >
+            Date
+          </div>
           <div className="w-20 shrink-0 text-right">Commit</div>
         </div>
 
@@ -850,13 +855,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       </span>
                     </div>
 
-                    {/* Full Date (YYYY-MM-DD HH:mm) + Relative Time */}
+                    {/* Full Date (YYYY-MM-DD HH:mm:ss) + Relative Time */}
                     <div
                       title={`${commit.dateFormatted} (${commit.relativeTime})`}
-                      className="w-48 shrink-0 flex items-center gap-1.5 font-mono text-[12px] text-[#475569] truncate pr-2"
+                      style={{ width: "calc(228px + var(--ui-font-delta, 0px) * 12)" }}
+                      className="shrink-0 flex items-center gap-2 font-mono text-[12px] text-[#475569] pr-2 whitespace-nowrap"
                     >
-                      <span>{commit.dateFormatted}</span>
-                      <span className="text-[11px] text-[#94a3b8] font-sans truncate">
+                      <span className="shrink-0 whitespace-nowrap">
+                        {commit.dateFormatted}
+                      </span>
+                      <span className="text-[11px] text-[#94a3b8] font-sans shrink-0 whitespace-nowrap">
                         {commit.relativeTime}
                       </span>
                     </div>

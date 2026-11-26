@@ -110,8 +110,10 @@ export interface ConflictBlock {
     "startLine": number;
     "endLine": number;
     "oursLabel": string;
+    "baseLabel": string;
     "theirsLabel": string;
     "oursLines": string[] | null;
+    "baseLines": string[] | null;
     "theirsLines": string[] | null;
 }
 

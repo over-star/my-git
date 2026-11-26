@@ -18,14 +18,19 @@ var percentRe = regexp.MustCompile(`(\d{1,3})%`)
 
 // Fetch runs git fetch --all --prune.
 func Fetch(ctx context.Context, loc RepoLocation) (OpResult, error) {
+	remotes, _ := ListRemotes(ctx, loc)
+	if len(remotes) == 0 {
+		return OpResult{
+			Success:   false,
+			Message:   "No remote configured for this repository",
+			ErrorCode: "NO_REMOTE",
+			Output:    "fatal: No remote repository configured.",
+		}, nil
+	}
 	stdout, stderr, err := RunGit(ctx, loc, "fetch", "--all", "--prune")
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
-		return OpResult{
-			Success: false,
-			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
-			Output:  combined,
-		}, nil
+		return classifyRemoteError(ctx, loc, "", false, stdout, stderr, err, ""), nil
 	}
 	return OpResult{Success: true, Message: "Fetch completed", Output: combined}, nil
 }
@@ -36,18 +41,19 @@ func Pull(ctx context.Context, loc RepoLocation) (OpResult, error) {
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		low := strings.ToLower(combined)
-		code := ""
 		if strings.Contains(low, "conflict") || strings.Contains(low, "automatic merge failed") {
-			code = "CONFLICT"
-		} else if strings.Contains(low, "no tracking information") {
-			code = "NO_UPSTREAM"
+			return OpResult{
+				Success:   false,
+				Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+				ErrorCode: "CONFLICT",
+				Output:    combined,
+			}, nil
 		}
-		return OpResult{
-			Success:   false,
-			Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
-			ErrorCode: code,
-			Output:    combined,
-		}, nil
+		fallbackCode := ""
+		if strings.Contains(low, "no tracking information") {
+			fallbackCode = "NO_UPSTREAM"
+		}
+		return classifyRemoteError(ctx, loc, "", false, stdout, stderr, err, fallbackCode), nil
 	}
 	return OpResult{Success: true, Message: "Pull completed", Output: combined}, nil
 }
@@ -72,25 +78,100 @@ func resolveDefaultRemote(ctx context.Context, loc RepoLocation, preferred strin
 }
 
 func classifyPushError(ctx context.Context, loc RepoLocation, remoteName, stdout, stderr string, err error) OpResult {
+	return classifyRemoteError(ctx, loc, remoteName, true, stdout, stderr, err, "")
+}
+
+func classifyRemoteError(ctx context.Context, loc RepoLocation, remoteName string, isPush bool, stdout, stderr string, err error, fallbackCode string) OpResult {
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
-	code := ""
+	low := strings.ToLower(combined)
+	code := fallbackCode
+
 	remotes, _ := ListRemotes(ctx, loc)
+	hasMatchingRemote := false
+	isHTTP := false
 	for _, r := range remotes {
 		if remoteName != "" && r.Name != remoteName {
 			continue
 		}
-		if strings.HasPrefix(strings.ToLower(r.PushURL), "http://") ||
-			strings.HasPrefix(strings.ToLower(r.PushURL), "https://") {
-			code = "HTTPS_REMOTE"
+		hasMatchingRemote = true
+		u := r.PushURL
+		if !isPush || u == "" {
+			u = r.FetchURL
+		}
+		lu := strings.ToLower(strings.TrimSpace(u))
+		if strings.HasPrefix(lu, "http://") || strings.HasPrefix(lu, "https://") {
+			isHTTP = true
 			break
 		}
 	}
+
+	if isPush && isHTTP {
+		code = "HTTPS_REMOTE"
+	} else if len(remotes) == 0 ||
+		strings.Contains(low, "no configured push destination") ||
+		strings.Contains(low, "no such remote") ||
+		(!hasMatchingRemote && (strings.Contains(low, "does not appear to be a git repository") || strings.Contains(low, "could not read from remote repository"))) {
+		code = "NO_REMOTE"
+	} else if strings.Contains(low, "does not appear to be a git repository") ||
+		strings.Contains(low, "could not read from remote repository") ||
+		strings.Contains(low, "correct access rights") ||
+		strings.Contains(low, "permission denied") ||
+		strings.Contains(low, "repository not found") ||
+		strings.Contains(low, "host key verification failed") {
+		code = "REMOTE_ACCESS_ERROR"
+	}
+
 	return OpResult{
 		Success:   false,
 		Message:   firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
 		ErrorCode: code,
 		Output:    combined,
 	}
+}
+
+// SetBranchUpstream fetches the target remote and sets upstream tracking for localBranch (or current HEAD).
+func SetBranchUpstream(ctx context.Context, loc RepoLocation, localBranch, remoteName, remoteBranch string) (OpResult, error) {
+	remoteName = strings.TrimSpace(remoteName)
+	if remoteName == "" {
+		remoteName = resolveDefaultRemote(ctx, loc, "")
+	}
+	remoteBranch = strings.TrimSpace(remoteBranch)
+	remoteBranch = strings.TrimPrefix(remoteBranch, remoteName+"/")
+	if remoteBranch == "" {
+		return OpResult{Success: false, Message: "Remote branch name is required"}, nil
+	}
+
+	localBranch = strings.TrimSpace(localBranch)
+	if localBranch == "" {
+		bOut, _, bErr := RunGit(ctx, loc, "rev-parse", "--abbrev-ref", "HEAD")
+		cur := strings.TrimSpace(bOut)
+		if bErr != nil || cur == "" || cur == "HEAD" {
+			return OpResult{Success: false, Message: "Cannot set upstream on detached HEAD"}, nil
+		}
+		localBranch = cur
+	}
+
+	// Fetch first so refs/remotes/<remote>/<branch> exists locally before --set-upstream-to.
+	fOut, fErrText, fErr := RunGit(ctx, loc, "fetch", remoteName)
+	if fErr != nil {
+		return classifyRemoteError(ctx, loc, remoteName, false, fOut, fErrText, fErr, ""), nil
+	}
+
+	upstreamRef := remoteName + "/" + remoteBranch
+	stdout, stderr, err := RunGit(ctx, loc, "branch", "--set-upstream-to="+upstreamRef, localBranch)
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		return OpResult{
+			Success: false,
+			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			Output:  combined,
+		}, nil
+	}
+	return OpResult{
+		Success: true,
+		Message: fmt.Sprintf("Set upstream of %s to %s", localBranch, upstreamRef),
+		Output:  combined,
+	}, nil
 }
 
 // Push runs git push, automatically adding --set-upstream origin <branch> when no upstream is set.
@@ -352,7 +433,7 @@ func inferRepoNameFromURL(u string) string {
 	return "repo"
 }
 
-// GetConflictFile reads a conflicted file and parses <<< === >>> conflict blocks.
+// GetConflictFile reads a conflicted file and parses <<< === >>> (and optional ||||||| base) conflict blocks.
 func GetConflictFile(ctx context.Context, loc RepoLocation, relPath string) (ConflictFileContent, error) {
 	res := ConflictFileContent{Path: relPath, Blocks: []ConflictBlock{}}
 	rawBytes, _, err := readRepoFileBytes(ctx, loc, relPath, 2*1024*1024)
@@ -363,7 +444,7 @@ func GetConflictFile(ctx context.Context, loc RepoLocation, relPath string) (Con
 	res.RawContent = text
 
 	lines := strings.Split(text, "\n")
-	state := 0 // 0=normal, 1=ours, 2=theirs
+	state := 0 // 0=normal, 1=ours, 2=theirs, 3=base (diff3)
 	var cur ConflictBlock
 	blockIdx := 0
 
@@ -376,9 +457,13 @@ func GetConflictFile(ctx context.Context, loc RepoLocation, relPath string) (Con
 				StartLine:   i + 1,
 				OursLabel:   strings.TrimSpace(strings.TrimPrefix(line, "<<<<<<<")),
 				OursLines:   []string{},
+				BaseLines:   []string{},
 				TheirsLines: []string{},
 			}
-		case state == 1 && strings.HasPrefix(line, "======="):
+		case state == 1 && strings.HasPrefix(line, "|||||||"):
+			state = 3
+			cur.BaseLabel = strings.TrimSpace(strings.TrimPrefix(line, "|||||||"))
+		case (state == 1 || state == 3) && strings.HasPrefix(line, "======="):
 			state = 2
 		case state == 2 && strings.HasPrefix(line, ">>>>>>>"):
 			cur.EndLine = i + 1
@@ -388,12 +473,57 @@ func GetConflictFile(ctx context.Context, loc RepoLocation, relPath string) (Con
 			state = 0
 		case state == 1:
 			cur.OursLines = append(cur.OursLines, line)
+		case state == 3:
+			cur.BaseLines = append(cur.BaseLines, line)
 		case state == 2:
 			cur.TheirsLines = append(cur.TheirsLines, line)
 		}
 	}
 	res.HasConflicts = len(res.Blocks) > 0
 	return res, nil
+}
+
+// ResolveConflictSide resolves a conflicted file by taking either "ours" or "theirs" and staging the result.
+// Handles delete/modify conflicts where checking out one side fails because the file was deleted on that side.
+func ResolveConflictSide(ctx context.Context, loc RepoLocation, relPath, side string) (OpResult, error) {
+	side = strings.ToLower(strings.TrimSpace(side))
+	if side != "ours" && side != "theirs" {
+		return OpResult{Success: false, Message: "Invalid conflict side; must be 'ours' or 'theirs'"}, nil
+	}
+	stdout, stderr, err := RunGit(ctx, loc, "checkout", "--"+side, "--", relPath)
+	combined := strings.TrimSpace(stdout + "\n" + stderr)
+	if err != nil {
+		low := strings.ToLower(combined)
+		if strings.Contains(low, "does not have") {
+			rmOut, rmErrText, rmErr := RunGit(ctx, loc, "rm", "--", relPath)
+			rmCombined := strings.TrimSpace(rmOut + "\n" + rmErrText)
+			if rmErr != nil {
+				return OpResult{
+					Success: false,
+					Message: firstNonEmpty(strings.TrimSpace(rmErrText), strings.TrimSpace(rmOut), rmErr.Error()),
+					Output:  rmCombined,
+				}, nil
+			}
+			return OpResult{
+				Success: true,
+				Message: fmt.Sprintf("Resolved %s by removing file (%s side)", relPath, side),
+				Output:  rmCombined,
+			}, nil
+		}
+		return OpResult{
+			Success: false,
+			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
+			Output:  combined,
+		}, nil
+	}
+	if stErr := StageFile(ctx, loc, relPath); stErr != nil {
+		return OpResult{Success: false, Message: stErr.Error(), Output: combined}, nil
+	}
+	return OpResult{
+		Success: true,
+		Message: fmt.Sprintf("Resolved %s using %s version", relPath, side),
+		Output:  combined,
+	}, nil
 }
 
 // WriteRepoFile writes resolved text back to a file in the repository.

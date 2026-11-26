@@ -47,7 +47,7 @@ func TestGitHubWebProviderCheckAndDownload(t *testing.T) {
 		case "/over-star/my-git/releases/tag/v0.2.0":
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("<html>Release v0.2.0</html>"))
-		case "/over-star/my-git/releases/download/v0.2.0/gitpulse-windows-amd64.zip":
+		case "/over-star/my-git/releases/download/v0.2.0/mygit-windows-amd64.zip":
 			if r.Method == http.MethodHead {
 				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
 				w.WriteHeader(http.StatusOK)
@@ -56,7 +56,7 @@ func TestGitHubWebProviderCheckAndDownload(t *testing.T) {
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
 			_, _ = w.Write(payload)
 		case "/over-star/my-git/releases/download/v0.2.0/checksums.txt":
-			_, _ = fmt.Fprintf(w, "%s  gitpulse-windows-amd64.zip\n", sumHex)
+			_, _ = fmt.Fprintf(w, "%s  mygit-windows-amd64.zip\n", sumHex)
 		case "/over-star/my-git/releases.atom":
 			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -99,7 +99,7 @@ func TestGitHubWebProviderCheckAndDownload(t *testing.T) {
 	if rel == nil {
 		t.Fatal("expected newer release v0.2.0, got nil")
 	}
-	if rel.Version != "0.2.0" || rel.Artifact.Filename != "gitpulse-windows-amd64.zip" || rel.Artifact.Size != int64(len(payload)) {
+	if rel.Version != "0.2.0" || rel.Artifact.Filename != "mygit-windows-amd64.zip" || rel.Artifact.Size != int64(len(payload)) {
 		t.Fatalf("unexpected release: %+v", rel)
 	}
 	if rel.Verification == nil || rel.Verification.DigestAlgo != "sha256" || hex.EncodeToString(rel.Verification.Digest) != sumHex {

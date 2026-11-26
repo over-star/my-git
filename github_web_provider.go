@@ -173,12 +173,27 @@ func (p *githubWebProvider) Check(ctx context.Context, req updater.CheckRequest)
 	if arch == "" {
 		arch = "amd64"
 	}
-	assetName := fmt.Sprintf("gitpulse-%s-%s.zip", plat, arch)
-	assetURL := fmt.Sprintf("%s/releases/download/%s/%s", p.webBase, tag, assetName)
-
-	assetSize, err := p.probeAssetSize(ctx, assetURL)
-	if err != nil {
-		return nil, fmt.Errorf("发现新版本 %s，但获取更新包 %s 失败: %w", tag, assetName, err)
+	candidates := []string{
+		fmt.Sprintf("mygit-%s-%s.zip", plat, arch),
+		fmt.Sprintf("gitpulse-%s-%s.zip", plat, arch),
+	}
+	var assetName, assetURL string
+	var assetSize int64
+	var probeErr error
+	for _, cand := range candidates {
+		candURL := fmt.Sprintf("%s/releases/download/%s/%s", p.webBase, tag, cand)
+		sz, perr := p.probeAssetSize(ctx, candURL)
+		if perr == nil {
+			assetName = cand
+			assetURL = candURL
+			assetSize = sz
+			probeErr = nil
+			break
+		}
+		probeErr = perr
+	}
+	if probeErr != nil {
+		return nil, fmt.Errorf("发现新版本 %s，但获取更新包 %s 失败: %w", tag, candidates[0], probeErr)
 	}
 
 	ver := strings.TrimPrefix(tag, "v")

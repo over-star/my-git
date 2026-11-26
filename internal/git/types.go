@@ -205,8 +205,10 @@ type ConflictBlock struct {
 	StartLine   int      `json:"startLine"`
 	EndLine     int      `json:"endLine"`
 	OursLabel   string   `json:"oursLabel"`
+	BaseLabel   string   `json:"baseLabel"`
 	TheirsLabel string   `json:"theirsLabel"`
 	OursLines   []string `json:"oursLines"`
+	BaseLines   []string `json:"baseLines"`
 	TheirsLines []string `json:"theirsLines"`
 }
 

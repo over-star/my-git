@@ -88,15 +88,20 @@ func ParseRepoLocation(rawPath string) RepoLocation {
 
 // RunGit executes a git command inside the repository (local or WSL2).
 func RunGit(ctx context.Context, loc RepoLocation, args ...string) (string, string, error) {
-	return runGitWithDir(ctx, loc, false, args...)
+	return runGitWithDir(ctx, loc, false, "", args...)
 }
 
-// RunGitNoDir executes git without requiring the repo directory to exist yet (used for clone).
+// RunGitWithStdin executes a git command with the provided stdin content.
+func RunGitWithStdin(ctx context.Context, loc RepoLocation, stdinData string, args ...string) (string, string, error) {
+	return runGitWithDir(ctx, loc, false, stdinData, args...)
+}
+
+// RunGitInDir executes git without requiring the repo directory to exist yet (used for clone).
 func RunGitInDir(ctx context.Context, loc RepoLocation, args ...string) (string, string, error) {
-	return runGitWithDir(ctx, loc, true, args...)
+	return runGitWithDir(ctx, loc, true, "", args...)
 }
 
-func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, args ...string) (string, string, error) {
+func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, stdinData string, args ...string) (string, string, error) {
 	fullArgs := append([]string{"-c", "core.quotepath=false"}, args...)
 	sshCmd := ""
 	if isRemoteGitOp(args) {
@@ -144,6 +149,9 @@ func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, args ...s
 		cmd.Env = env
 	}
 	hideWindow(cmd)
+	if stdinData != "" {
+		cmd.Stdin = strings.NewReader(stdinData)
+	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf

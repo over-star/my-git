@@ -19,11 +19,11 @@ Unicode true
 ####
 ## The following information is taken from the wails_tools.nsh file, but they can be overwritten here.
 ####
-!define INFO_PROJECTNAME    "gitpulse"
+!define INFO_PROJECTNAME    "mygit"
 !define INFO_COMPANYNAME    "over-star"
 !define INFO_PRODUCTNAME    "mygit"
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.1.2"
+    !define INFO_PRODUCTVERSION "0.1.3"
 !endif
 !define INFO_COPYRIGHT      "(c) 2026, over-star"
 ## !define PRODUCT_EXECUTABLE  "Application.exe"      # Default "${INFO_PROJECTNAME}.exe"

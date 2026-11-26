@@ -127,6 +127,10 @@ export function GetLayoutState(): $CancellablePromise<store$0.LayoutState> {
     return $Call.ByID(1542144158);
 }
 
+export function GetMergeCommitMessage(repoPath: string): $CancellablePromise<$models.LastCommitMessage> {
+    return $Call.ByID(1401065875, repoPath);
+}
+
 export function GetPinnedBranches(repoPath: string): $CancellablePromise<string[] | null> {
     return $Call.ByID(1155485365, repoPath);
 }
@@ -227,6 +231,10 @@ export function ResetToCommit(repoPath: string, hash: string, mode: string): $Ca
     return $Call.ByID(1497050880, repoPath, hash, mode);
 }
 
+export function ResolveConflictSide(repoPath: string, relPath: string, side: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(1893185586, repoPath, relPath, side);
+}
+
 export function RevertCommit(repoPath: string, hash: string, isMerge: boolean): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(2184707978, repoPath, hash, isMerge);
 }
@@ -253,6 +261,10 @@ export function SaveResolvedConflict(repoPath: string, relPath: string, content:
 
 export function SetApp(app: application$0.App | null): $CancellablePromise<void> {
     return $Call.ByID(1890383270, app);
+}
+
+export function SetBranchUpstream(repoPath: string, localBranch: string, remoteName: string, remoteBranch: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(4233686878, repoPath, localBranch, remoteName, remoteBranch);
 }
 
 export function SetRemoteURL(repoPath: string, name: string, newURL: string): $CancellablePromise<git$0.OpResult> {

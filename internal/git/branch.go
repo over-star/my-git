@@ -13,26 +13,23 @@ var behindRe = regexp.MustCompile(`behind (\d+)`)
 
 // ListBranches returns all local and remote branches with tracking info.
 func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
-	format := "%(refname)%1f%(refname:short)%1f%(HEAD)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(objectname:short)%1f%(subject)"
+	format := "%(refname)%1f%(refname:short)%1f%(HEAD)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(objectname:short)%1f%(objectname)%1f%(subject)"
 	out, stderr, err := RunGit(ctx, loc, "for-each-ref", "--sort=-HEAD", "--sort=refname", "--format="+format, "refs/heads", "refs/remotes")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list branches: %s (%w)", strings.TrimSpace(stderr), err)
 	}
 
-	// Check if any remote exists so we can count unpushed commits for branches without upstream
-	hasRemotes := false
-	if rOut, _, rerr := RunGit(ctx, loc, "remote"); rerr == nil && strings.TrimSpace(rOut) != "" {
-		hasRemotes = true
-	}
-
 	var branches []BranchInfo
+	var branchOIDs []string
+	remoteOIDs := make(map[string]bool)
+
 	lines := strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n")
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		f := strings.SplitN(line, "\x1f", 7)
-		if len(f) < 7 {
+		f := strings.SplitN(line, "\x1f", 8)
+		if len(f) < 8 {
 			continue
 		}
 		fullName := f[0]
@@ -40,7 +37,8 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 		upstream := f[3]
 		track := f[4]
 		lastSHA := f[5]
-		lastMsg := f[6]
+		fullSHA := f[6]
+		lastMsg := f[7]
 
 		isRemote := strings.HasPrefix(fullName, "refs/remotes/")
 		shortName := f[1]
@@ -56,6 +54,9 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 		if isRemote {
 			parts := strings.SplitN(shortName, "/", 2)
 			remoteName = parts[0]
+			if fullSHA != "" {
+				remoteOIDs[fullSHA] = true
+			}
 		}
 
 		ahead, behind := 0, 0
@@ -64,11 +65,6 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 		}
 		if m := behindRe.FindStringSubmatch(track); len(m) == 2 {
 			behind, _ = strconv.Atoi(m[1])
-		}
-		if !isRemote && upstream == "" && hasRemotes {
-			if cntOut, _, cerr := RunGit(ctx, loc, "rev-list", "--count", fullName, "--not", "--remotes"); cerr == nil {
-				ahead, _ = strconv.Atoi(strings.TrimSpace(cntOut))
-			}
 		}
 
 		branches = append(branches, BranchInfo{
@@ -83,8 +79,99 @@ func ListBranches(ctx context.Context, loc RepoLocation) ([]BranchInfo, error) {
 			LastSHA:    lastSHA,
 			LastMsg:    lastMsg,
 		})
+		branchOIDs = append(branchOIDs, fullSHA)
 	}
+
+	// Count unpushed commits for local branches without upstream in at most one git invocation.
+	hasRemotes := len(remoteOIDs) > 0
+	if !hasRemotes && len(branches) > 0 {
+		if rOut, _, rerr := RunGit(ctx, loc, "remote"); rerr == nil && strings.TrimSpace(rOut) != "" {
+			hasRemotes = true
+		}
+	}
+	if hasRemotes {
+		var pending []string
+		seen := make(map[string]bool)
+		for i, b := range branches {
+			oid := branchOIDs[i]
+			if b.IsRemote || b.Upstream != "" || oid == "" || remoteOIDs[oid] || seen[oid] {
+				continue
+			}
+			seen[oid] = true
+			pending = append(pending, oid)
+		}
+		if len(pending) > 0 {
+			counts := countUnpushedBatch(ctx, loc, pending)
+			for i, b := range branches {
+				if !b.IsRemote && b.Upstream == "" {
+					if c, ok := counts[branchOIDs[i]]; ok {
+						branches[i].Ahead = c
+					}
+				}
+			}
+		}
+	}
+
 	return branches, nil
+}
+
+// countUnpushedBatch returns the number of commits reachable from each tip OID that are not reachable from any remote ref.
+func countUnpushedBatch(ctx context.Context, loc RepoLocation, tipOIDs []string) map[string]int {
+	counts := make(map[string]int, len(tipOIDs))
+	if len(tipOIDs) == 0 {
+		return counts
+	}
+	if len(tipOIDs) == 1 {
+		if cntOut, _, cerr := RunGit(ctx, loc, "rev-list", "--count", tipOIDs[0], "--not", "--remotes"); cerr == nil {
+			counts[tipOIDs[0]], _ = strconv.Atoi(strings.TrimSpace(cntOut))
+		}
+		return counts
+	}
+
+	stdinData := strings.Join(tipOIDs, "\n") + "\n"
+	out, _, err := RunGitWithStdin(ctx, loc, stdinData, "rev-list", "--parents", "--stdin", "--not", "--remotes")
+	if err != nil {
+		return counts
+	}
+
+	parentsByCommit := make(map[string][]string)
+	for _, line := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		parentsByCommit[fields[0]] = fields[1:]
+	}
+
+	for _, tip := range tipOIDs {
+		if _, ok := parentsByCommit[tip]; !ok {
+			counts[tip] = 0
+			continue
+		}
+		visited := make(map[string]struct{})
+		stack := []string{tip}
+		for len(stack) > 0 {
+			cur := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if _, seen := visited[cur]; seen {
+				continue
+			}
+			parents, ok := parentsByCommit[cur]
+			if !ok {
+				continue
+			}
+			visited[cur] = struct{}{}
+			for _, p := range parents {
+				if _, seen := visited[p]; !seen {
+					if _, pOK := parentsByCommit[p]; pOK {
+						stack = append(stack, p)
+					}
+				}
+			}
+		}
+		counts[tip] = len(visited)
+	}
+	return counts
 }
 
 func classifyCheckoutResult(targetLabel, stdout, stderr string, err error) OpResult {

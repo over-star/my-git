@@ -70,20 +70,20 @@ jobs:
           New-Item -ItemType Directory -Force -Path bin | Out-Null
 
           wails3 generate syso -arch amd64 -icon build/windows/icon.ico -manifest build/windows/wails.exe.manifest -info build/windows/info.json -out wails_windows_amd64.syso
-          go build -tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui -X main.AppVersion=$ver" -o "bin/gitpulse.exe"
+          go build -tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui -X main.AppVersion=$ver" -o "bin/mygit.exe"
           Remove-Item -Force wails_windows_amd64.syso -ErrorAction SilentlyContinue
 
           wails3 generate webview2bootstrapper -dir "build/windows/nsis"
           $makensisCmd = Get-Command makensis -ErrorAction SilentlyContinue
           $makensis = if ($makensisCmd) { $makensisCmd.Source } else { "C:\Program Files (x86)\NSIS\makensis.exe" }
-          $binPath = (Resolve-Path "bin\gitpulse.exe").Path
+          $binPath = (Resolve-Path "bin\mygit.exe").Path
 
           Push-Location build/windows/nsis
           & $makensis "-DINFO_PRODUCTVERSION=$ver" "-DWAILS_INSTALL_SCOPE=user" "-DREQUEST_EXECUTION_LEVEL=user" "-DARG_WAILS_AMD64_BINARY=$binPath" project.nsi
           Pop-Location
 
-          Compress-Archive -Path "bin\gitpulse.exe" -DestinationPath "bin\gitpulse-windows-amd64.zip" -Force
-          $files = @("bin\gitpulse-amd64-installer.exe", "bin\gitpulse-windows-amd64.zip")
+          Compress-Archive -Path "bin\mygit.exe" -DestinationPath "bin\mygit-windows-amd64.zip" -Force
+          $files = @("bin\mygit-amd64-installer.exe", "bin\mygit-windows-amd64.zip")
           $lines = foreach ($f in $files) {
             $h = (Get-FileHash -Path $f -Algorithm SHA256).Hash.ToLowerInvariant()
             $name = Split-Path $f -Leaf
@@ -98,6 +98,6 @@ jobs:
           name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: |
-            bin/gitpulse-amd64-installer.exe
-            bin/gitpulse-windows-amd64.zip
+            bin/mygit-amd64-installer.exe
+            bin/mygit-windows-amd64.zip
             bin/checksums.txt

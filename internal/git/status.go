@@ -25,10 +25,7 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 		return st, fmt.Errorf("git status failed: %s (%w)", strings.TrimSpace(stderr), err)
 	}
 
-	// Collect numstats for unstaged and staged
-	unstagedStats := parseNumstat(ctx, loc, false)
-	stagedStats := parseNumstat(ctx, loc, true)
-
+	hasUnstagedTracked := false
 	tokens := strings.Split(out, "\x00")
 	for i := 0; i < len(tokens); i++ {
 		line := tokens[i]
@@ -50,25 +47,18 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 			filePath := fields[8]
 			x, y := xy[0], xy[1]
 			if x != '.' {
-				stat := stagedStats[filePath]
 				st.Staged = append(st.Staged, FileStatus{
-					Path:      filePath,
-					Status:    string(x),
-					Staged:    true,
-					Additions: stat.add,
-					Deletions: stat.del,
-					IsBinary:  stat.binary,
+					Path:   filePath,
+					Status: string(x),
+					Staged: true,
 				})
 			}
 			if y != '.' {
-				stat := unstagedStats[filePath]
+				hasUnstagedTracked = true
 				st.Unstaged = append(st.Unstaged, FileStatus{
-					Path:      filePath,
-					Status:    string(y),
-					Staged:    false,
-					Additions: stat.add,
-					Deletions: stat.del,
-					IsBinary:  stat.binary,
+					Path:   filePath,
+					Status: string(y),
+					Staged: false,
 				})
 			}
 		case '2': // Renamed or copied entry: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\0<origPath>
@@ -85,27 +75,20 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 			}
 			x, y := xy[0], xy[1]
 			if x != '.' {
-				stat := stagedStats[filePath]
 				st.Staged = append(st.Staged, FileStatus{
-					Path:      filePath,
-					OrigPath:  origPath,
-					Status:    string(x),
-					Staged:    true,
-					Additions: stat.add,
-					Deletions: stat.del,
-					IsBinary:  stat.binary,
+					Path:     filePath,
+					OrigPath: origPath,
+					Status:   string(x),
+					Staged:   true,
 				})
 			}
 			if y != '.' {
-				stat := unstagedStats[filePath]
+				hasUnstagedTracked = true
 				st.Unstaged = append(st.Unstaged, FileStatus{
-					Path:      filePath,
-					OrigPath:  origPath,
-					Status:    string(y),
-					Staged:    false,
-					Additions: stat.add,
-					Deletions: stat.del,
-					IsBinary:  stat.binary,
+					Path:     filePath,
+					OrigPath: origPath,
+					Status:   string(y),
+					Staged:   false,
 				})
 			}
 		case 'u': // Unmerged (conflicted): u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
@@ -130,6 +113,30 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 					Status: "?",
 					Staged: false,
 				})
+			}
+		}
+	}
+
+	if hasUnstagedTracked {
+		unstagedStats := parseNumstat(ctx, loc, false)
+		for i := range st.Unstaged {
+			if st.Unstaged[i].Conflicted || st.Unstaged[i].Status == "?" {
+				continue
+			}
+			if stat, ok := unstagedStats[st.Unstaged[i].Path]; ok {
+				st.Unstaged[i].Additions = stat.add
+				st.Unstaged[i].Deletions = stat.del
+				st.Unstaged[i].IsBinary = stat.binary
+			}
+		}
+	}
+	if len(st.Staged) > 0 {
+		stagedStats := parseNumstat(ctx, loc, true)
+		for i := range st.Staged {
+			if stat, ok := stagedStats[st.Staged[i].Path]; ok {
+				st.Staged[i].Additions = stat.add
+				st.Staged[i].Deletions = stat.del
+				st.Staged[i].IsBinary = stat.binary
 			}
 		}
 	}
@@ -230,26 +237,60 @@ func detectMergeState(ctx context.Context, loc RepoLocation) (string, string) {
 		{"rebase-apply", "rebase"},
 		{"CHERRY_PICK_HEAD", "cherry-pick"},
 	}
+
+	args := []string{"rev-parse"}
 	for _, c := range checks {
-		pOut, _, err := RunGit(ctx, loc, "rev-parse", "--git-path", c.file)
-		if err != nil {
-			continue
-		}
-		gitRel := strings.TrimSpace(pOut)
-		if gitRel == "" {
-			continue
-		}
-		if gitPathExists(ctx, loc, gitRel) {
-			msg := ""
-			if c.state == "merge" {
-				if mOut, _, merr := RunGit(ctx, loc, "name-rev", "--name-only", "MERGE_HEAD"); merr == nil {
-					msg = strings.TrimSpace(mOut)
-				}
+		args = append(args, "--git-path", c.file)
+	}
+	pOut, _, err := RunGit(ctx, loc, args...)
+	if err != nil {
+		return "", ""
+	}
+
+	lines := strings.Split(strings.ReplaceAll(strings.TrimRight(pOut, "\r\n"), "\r\n", "\n"), "\n")
+	if len(lines) < len(checks) {
+		return "", ""
+	}
+
+	matchedIdx := -1
+	if loc.IsWSL {
+		targets := make([]string, len(checks))
+		for i := range checks {
+			target := strings.TrimSpace(lines[i])
+			if target != "" && !strings.HasPrefix(target, "/") {
+				target = path.Join(loc.LinuxPath, target)
 			}
-			return c.state, msg
+			targets[i] = target
+		}
+		shArgs := append([]string{"-d", loc.Distro, "-e", "sh", "-c", `i=0; for p in "$@"; do if [ -n "$p" ] && [ -e "$p" ]; then printf '%d' "$i"; exit 0; fi; i=$((i+1)); done; exit 1`, "sh"}, targets...)
+		cmd := exec.CommandContext(ctx, "wsl.exe", shArgs...)
+		hideWindow(cmd)
+		if out, cerr := cmd.Output(); cerr == nil {
+			if idx, perr := strconv.Atoi(strings.TrimSpace(string(out))); perr == nil && idx >= 0 && idx < len(checks) {
+				matchedIdx = idx
+			}
+		}
+	} else {
+		for i := range checks {
+			gitRel := strings.TrimSpace(lines[i])
+			if gitRel != "" && gitPathExists(ctx, loc, gitRel) {
+				matchedIdx = i
+				break
+			}
 		}
 	}
-	return "", ""
+
+	if matchedIdx < 0 {
+		return "", ""
+	}
+	state := checks[matchedIdx].state
+	msg := ""
+	if state == "merge" {
+		if mOut, _, merr := RunGit(ctx, loc, "name-rev", "--name-only", "MERGE_HEAD"); merr == nil {
+			msg = strings.TrimSpace(mOut)
+		}
+	}
+	return state, msg
 }
 
 func gitPathExists(ctx context.Context, loc RepoLocation, relOrAbs string) bool {
@@ -268,6 +309,42 @@ func gitPathExists(ctx context.Context, loc RepoLocation, relOrAbs string) bool 
 	}
 	_, err := os.Stat(target)
 	return err == nil
+}
+
+func readGitPathFile(ctx context.Context, loc RepoLocation, gitRel string) (string, bool) {
+	pOut, _, err := RunGit(ctx, loc, "rev-parse", "--git-path", gitRel)
+	if err != nil {
+		return "", false
+	}
+	resolved := strings.TrimSpace(pOut)
+	if resolved == "" {
+		return "", false
+	}
+	if !gitPathExists(ctx, loc, resolved) {
+		return "", false
+	}
+	if loc.IsWSL {
+		target := resolved
+		if !strings.HasPrefix(target, "/") {
+			target = path.Join(loc.LinuxPath, target)
+		}
+		cmd := exec.CommandContext(ctx, "wsl.exe", "-d", loc.Distro, "-e", "cat", target)
+		hideWindow(cmd)
+		out, cerr := cmd.Output()
+		if cerr != nil {
+			return "", false
+		}
+		return string(out), true
+	}
+	target := resolved
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(loc.Path, filepath.FromSlash(target))
+	}
+	b, rerr := os.ReadFile(target)
+	if rerr != nil {
+		return "", false
+	}
+	return string(b), true
 }
 
 // StageFile stages a single file.
