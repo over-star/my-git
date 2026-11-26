@@ -21,7 +21,11 @@ interface AppSettingsModalProps {
   open: boolean;
   settings: AppSettings;
   hasActiveRepo: boolean;
-  effectiveAuthor: { name: string; email: string };
+  effectiveAuthor: {
+    name: string;
+    email: string;
+    source?: "local" | "global" | "none";
+  };
   updateStatus: UpdateStatus;
   onClose: () => void;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
@@ -250,10 +254,25 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
                 <span>Git 全局与仓库配置</span>
               </div>
               {effectiveAuthor.name || effectiveAuthor.email ? (
-                <span className="font-mono text-[11px] text-[#475569] truncate max-w-[260px]">
-                  {effectiveAuthor.name}
-                  {effectiveAuthor.email ? ` <${effectiveAuthor.email}>` : ""}
-                </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {hasActiveRepo && effectiveAuthor.source && effectiveAuthor.source !== "none" && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${
+                        effectiveAuthor.source === "local"
+                          ? "bg-[#e0f2fe] text-[#0369a1]"
+                          : "bg-[#e2e8f0] text-[#475569]"
+                      }`}
+                    >
+                      {effectiveAuthor.source === "local"
+                        ? "当前仓库"
+                        : "继承全局"}
+                    </span>
+                  )}
+                  <span className="font-mono text-[11px] text-[#475569] truncate max-w-[240px]">
+                    {effectiveAuthor.name}
+                    {effectiveAuthor.email ? ` <${effectiveAuthor.email}>` : ""}
+                  </span>
+                </div>
               ) : (
                 <span className="text-[11px] text-[#94a3b8]">未检测到作者身份</span>
               )}

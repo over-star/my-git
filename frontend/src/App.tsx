@@ -223,7 +223,8 @@ export function App() {
   const [effectiveAuthor, setEffectiveAuthor] = useState<{
     name: string;
     email: string;
-  }>({ name: "", email: "" });
+    source: "local" | "global" | "none";
+  }>({ name: "", email: "", source: "none" });
   const [httpsRemotePrompt, setHttpsRemotePrompt] = useState<{
     remoteName: string;
     currentUrl: string;
@@ -340,9 +341,20 @@ export function App() {
             ? { repoPath: target, ref: "__ALL__" }
             : prev
         );
+        const effName = cfg?.effective?.userName ?? "";
+        const effEmail = cfg?.effective?.userEmail ?? "";
+        const hasLocalOverride = Boolean(
+          cfg?.local?.userName || cfg?.local?.userEmail
+        );
         setEffectiveAuthor({
-          name: cfg?.effective?.userName ?? "",
-          email: cfg?.effective?.userEmail ?? "",
+          name: effName,
+          email: effEmail,
+          source:
+            effName || effEmail
+              ? hasLocalOverride
+                ? "local"
+                : "global"
+              : "none",
         });
         setHistoryRefreshKey((k) => k + 1);
       } catch (err) {
@@ -1457,7 +1469,13 @@ export function App() {
                 scope: activeRepo ? "local" : "global",
               })
             }
-            title="配置 Git 作者身份与仓库选项 (Local / Global / WSL2)"
+            title={
+              effectiveAuthor.source === "local"
+                ? `当前使用【仓库独立配置】(--local): ${effectiveAuthor.name} <${effectiveAuthor.email}>\n点击修改配置`
+                : effectiveAuthor.source === "global"
+                ? `当前继承【全局配置】(--global): ${effectiveAuthor.name} <${effectiveAuthor.email}>\n点击修改或为当前仓库单独覆盖`
+                : "未配置 Git 作者身份，点击立即配置"
+            }
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded border text-[11px] font-medium cursor-pointer transition-colors ${
               activeRepo && !effectiveAuthor.name && !effectiveAuthor.email
                 ? "bg-[#fef2f2] border-[#fecaca] text-[#dc2626] hover:bg-[#fee2e2]"
@@ -1466,8 +1484,19 @@ export function App() {
           >
             <User className="w-3.5 h-3.5 text-[#0284c7]" />
             <span className="max-w-[140px] truncate">
-              {effectiveAuthor.name || "Set Git Identity"}
+              {effectiveAuthor.name || "未配置 Git 身份"}
             </span>
+            {activeRepo && effectiveAuthor.source !== "none" && (
+              <span
+                className={`px-1.5 py-[1px] rounded text-[10px] font-medium ${
+                  effectiveAuthor.source === "local"
+                    ? "bg-[#e0f2fe] text-[#0369a1]"
+                    : "bg-[#f1f5f9] text-[#64748b]"
+                }`}
+              >
+                {effectiveAuthor.source === "local" ? "仓库" : "全局"}
+              </span>
+            )}
           </button>
           {(updateStatus.state === "available" ||
             updateStatus.state === "downloading" ||
