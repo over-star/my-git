@@ -162,11 +162,11 @@ func (s *GitService) CloneRepo(cloneID, repoURL, targetParent, folderName string
 
 // --- Status, Staging & Diff ---
 
-func (s *GitService) GetStatus(repoPath string) (git.RepoStatus, error) {
+func (s *GitService) GetStatus(repoPath string, ignoreWhitespace bool) (git.RepoStatus, error) {
 	ctx, cancel := s.ctx()
 	defer cancel()
 	loc := git.ParseRepoLocation(repoPath)
-	return git.GetRepoStatus(ctx, loc)
+	return git.GetRepoStatusWithOptions(ctx, loc, ignoreWhitespace)
 }
 
 func (s *GitService) StageFile(repoPath, relPath string) error {
@@ -241,6 +241,12 @@ func (s *GitService) GetLastCommitMessage(repoPath string) (LastCommitMessage, e
 	defer cancel()
 	sum, desc, err := git.GetLastCommitMessage(ctx, git.ParseRepoLocation(repoPath))
 	return LastCommitMessage{Summary: sum, Description: desc}, err
+}
+
+func (s *GitService) GetRecentCommitMessages(repoPath string, limit int) ([]git.RecentCommitMessage, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.GetRecentCommitMessages(ctx, git.ParseRepoLocation(repoPath), limit)
 }
 
 func (s *GitService) GetMergeCommitMessage(repoPath string) (LastCommitMessage, error) {
@@ -416,6 +422,44 @@ func (s *GitService) StashDrop(repoPath, ref string) (git.OpResult, error) {
 	ctx, cancel := s.ctx()
 	defer cancel()
 	return git.StashDrop(ctx, git.ParseRepoLocation(repoPath), ref)
+}
+
+// --- Worktrees ---
+
+func (s *GitService) ListWorktrees(repoPath string) ([]git.WorktreeInfo, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.ListWorktrees(ctx, git.ParseRepoLocation(repoPath))
+}
+
+func (s *GitService) AddWorktree(repoPath, targetPath, branch, baseRef string, createBranch, detach, force bool) (git.AddWorktreeResult, error) {
+	ctx, cancel := s.longCtx()
+	defer cancel()
+	return git.AddWorktree(ctx, git.ParseRepoLocation(repoPath), targetPath, branch, baseRef, createBranch, detach, force)
+}
+
+func (s *GitService) RemoveWorktree(repoPath, worktreePath string, force bool) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.RemoveWorktree(ctx, git.ParseRepoLocation(repoPath), worktreePath, force)
+}
+
+func (s *GitService) LockWorktree(repoPath, worktreePath, reason string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.LockWorktree(ctx, git.ParseRepoLocation(repoPath), worktreePath, reason)
+}
+
+func (s *GitService) UnlockWorktree(repoPath, worktreePath string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.UnlockWorktree(ctx, git.ParseRepoLocation(repoPath), worktreePath)
+}
+
+func (s *GitService) PruneWorktrees(repoPath string) (git.OpResult, error) {
+	ctx, cancel := s.ctx()
+	defer cancel()
+	return git.PruneWorktrees(ctx, git.ParseRepoLocation(repoPath))
 }
 
 // --- Remote Sync & Conflict Resolution ---

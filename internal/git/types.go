@@ -7,6 +7,8 @@ type RepoLocation struct {
 	IsWSL         bool   `json:"isWsl"`
 	Distro        string `json:"distro"`
 	LinuxPath     string `json:"linuxPath"`
+	CommonDir     string `json:"commonDir"`
+	IsWorktree    bool   `json:"isWorktree"`
 	GitVersion    string `json:"gitVersion"`
 	CurrentBranch string `json:"currentBranch"`
 	HeadSHA       string `json:"headSha"`
@@ -123,6 +125,16 @@ type CommitItem struct {
 	Refs          []RefBadge `json:"refs"`
 }
 
+// RecentCommitMessage represents a recent commit's message for quick reuse when committing.
+type RecentCommitMessage struct {
+	Hash         string `json:"hash"`
+	ShortHash    string `json:"shortHash"`
+	Subject      string `json:"subject"`
+	Body         string `json:"body"`
+	Author       string `json:"author"`
+	RelativeTime string `json:"relativeTime"`
+}
+
 // CommitPage represents a paginated slice of commit history.
 type CommitPage struct {
 	Commits []CommitItem `json:"commits"`
@@ -234,8 +246,33 @@ type CloneProgressEvent struct {
 type OpResult struct {
 	Success   bool   `json:"success"`
 	Message   string `json:"message"`
-	ErrorCode string `json:"errorCode"` // "", "CONFLICT", "DIRTY_WORKTREE", "NOT_GIT_REPO", "NO_UPSTREAM", "AUTHOR_IDENTITY_UNKNOWN"
+	ErrorCode string `json:"errorCode"` // "", "CONFLICT", "DIRTY_WORKTREE", "WORKTREE_IN_USE", "LOCKED_WORKTREE", "NOT_GIT_REPO", "NO_UPSTREAM", "AUTHOR_IDENTITY_UNKNOWN"
 	Output    string `json:"output"`
+}
+
+// WorktreeInfo describes a Git worktree associated with a repository.
+type WorktreeInfo struct {
+	Path        string `json:"path"`        // Canonical RepoLocation path (Windows path or wsl://distro/path)
+	RawPath     string `json:"rawPath"`     // Display path (Windows path or Linux path for WSL)
+	Name        string `json:"name"`        // Base directory name
+	HeadSHA     string `json:"headSha"`     // Short commit SHA
+	FullSHA     string `json:"fullSha"`     // Full commit SHA
+	Branch      string `json:"branch"`      // Short branch name (empty if bare or detached)
+	BranchFull  string `json:"branchFull"`  // Full branch ref (e.g. refs/heads/main)
+	IsMain      bool   `json:"isMain"`      // Primary worktree
+	IsCurrent   bool   `json:"isCurrent"`   // Matches queried RepoLocation
+	IsBare      bool   `json:"isBare"`
+	IsDetached  bool   `json:"isDetached"`
+	IsLocked    bool   `json:"isLocked"`
+	LockReason  string `json:"lockReason"`
+	IsPrunable  bool   `json:"isPrunable"`
+	PruneReason string `json:"pruneReason"`
+}
+
+// AddWorktreeResult reports the outcome of creating a new worktree along with its validated RepoLocation.
+type AddWorktreeResult struct {
+	Result OpResult     `json:"result"`
+	Repo   RepoLocation `json:"repo"`
 }
 
 // GitIdentity holds common user and behavior git config keys.

@@ -996,6 +996,157 @@ func TestFormatCommitDateAndRelativeTime(t *testing.T) {
 	}
 }
 
+func TestGetRepoStatusIgnoreWhitespace(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "config", "user.name", "Test User"); err != nil {
+		t.Fatalf("git config user.name failed: %s (%v)", stderr, err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "config", "user.email", "test@example.com"); err != nil {
+		t.Fatalf("git config user.email failed: %s (%v)", stderr, err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "config", "core.autocrlf", "false"); err != nil {
+		t.Fatalf("git config core.autocrlf failed: %s (%v)", stderr, err)
+	}
+
+	wsFile := filepath.Join(dir, "ws.txt")
+	realFile := filepath.Join(dir, "real.txt")
+	if err := os.WriteFile(wsFile, []byte("hello world\nline two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(realFile, []byte("alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := StageAll(ctx, loc); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Commit(ctx, loc, "init", "", false); err != nil || !res.Success {
+		t.Fatalf("Commit failed: %+v %v", res, err)
+	}
+
+	// Make whitespace-only change to ws.txt (spaces, tabs, CRLF) and real change to real.txt
+	if err := os.WriteFile(wsFile, []byte("  hello   world\t\r\nline  two \r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(realFile, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Also stage ws.txt? First test unstaged filtering
+	stAll, err := GetRepoStatusWithOptions(ctx, loc, false)
+	if err != nil {
+		t.Fatalf("GetRepoStatusWithOptions(false) failed: %v", err)
+	}
+	if len(stAll.Unstaged) != 2 {
+		t.Fatalf("expected 2 unstaged files without ignoreWhitespace, got %d (%+v)", len(stAll.Unstaged), stAll.Unstaged)
+	}
+
+	stNoWs, err := GetRepoStatusWithOptions(ctx, loc, true)
+	if err != nil {
+		t.Fatalf("GetRepoStatusWithOptions(true) failed: %v", err)
+	}
+	if len(stNoWs.Unstaged) != 1 || stNoWs.Unstaged[0].Path != "real.txt" {
+		t.Fatalf("expected only real.txt unstaged when ignoreWhitespace=true, got %+v", stNoWs.Unstaged)
+	}
+
+	// Stage ws.txt and ensure staged whitespace-only changes are also filtered when ignoreWhitespace=true
+	if err := StageFile(ctx, loc, "ws.txt"); err != nil {
+		t.Fatal(err)
+	}
+	stStagedAll, err := GetRepoStatusWithOptions(ctx, loc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stStagedAll.Staged) != 1 || stStagedAll.Staged[0].Path != "ws.txt" {
+		t.Fatalf("expected ws.txt staged when ignoreWhitespace=false, got %+v", stStagedAll.Staged)
+	}
+	stStagedNoWs, err := GetRepoStatusWithOptions(ctx, loc, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stStagedNoWs.Staged) != 0 {
+		t.Fatalf("expected 0 staged files when ignoreWhitespace=true, got %+v", stStagedNoWs.Staged)
+	}
+	if len(stStagedNoWs.Unstaged) != 1 || stStagedNoWs.Unstaged[0].Path != "real.txt" {
+		t.Fatalf("expected real.txt unstaged, got %+v", stStagedNoWs.Unstaged)
+	}
+}
+
+func TestGetRecentCommitMessages(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "config", "user.name", "Test User"); err != nil {
+		t.Fatalf("git config user.name failed: %s (%v)", stderr, err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "config", "user.email", "test@example.com"); err != nil {
+		t.Fatalf("git config user.email failed: %s (%v)", stderr, err)
+	}
+
+	// Empty repo should return empty slice without error
+	emptyMsgs, err := GetRecentCommitMessages(ctx, loc, 10)
+	if err != nil {
+		t.Fatalf("GetRecentCommitMessages on empty repo failed: %v", err)
+	}
+	if len(emptyMsgs) != 0 {
+		t.Fatalf("expected 0 messages on empty repo, got %d", len(emptyMsgs))
+	}
+
+	writeAndCommit := func(content, summary, body string) {
+		if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := StageAll(ctx, loc); err != nil {
+			t.Fatal(err)
+		}
+		if res, err := Commit(ctx, loc, summary, body, false); err != nil || !res.Success {
+			t.Fatalf("Commit(%q) failed: %+v %v", summary, res, err)
+		}
+	}
+
+	writeAndCommit("v1\n", "feat: first commit", "detailed body")
+	writeAndCommit("v2\n", "fix: duplicate subject", "")
+	writeAndCommit("v3\n", "chore: middle commit", "")
+	writeAndCommit("v4\n", "fix: duplicate subject", "")
+
+	msgs, err := GetRecentCommitMessages(ctx, loc, 10)
+	if err != nil {
+		t.Fatalf("GetRecentCommitMessages failed: %v", err)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 deduplicated messages, got %d (%+v)", len(msgs), msgs)
+	}
+	if msgs[0].Subject != "fix: duplicate subject" || msgs[0].Body != "" {
+		t.Fatalf("unexpected first message: %+v", msgs[0])
+	}
+	if msgs[1].Subject != "chore: middle commit" {
+		t.Fatalf("unexpected second message: %+v", msgs[1])
+	}
+	if msgs[2].Subject != "feat: first commit" || msgs[2].Body != "detailed body" {
+		t.Fatalf("unexpected third message: %+v", msgs[2])
+	}
+	if msgs[0].ShortHash == "" || msgs[0].Author != "Test User" {
+		t.Fatalf("expected metadata populated: %+v", msgs[0])
+	}
+
+	limited, err := GetRecentCommitMessages(ctx, loc, 2)
+	if err != nil {
+		t.Fatalf("GetRecentCommitMessages(limit=2) failed: %v", err)
+	}
+	if len(limited) != 2 {
+		t.Fatalf("expected 2 messages with limit=2, got %d", len(limited))
+	}
+}
+
+
 
 
 

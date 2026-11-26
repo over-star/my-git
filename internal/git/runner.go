@@ -281,6 +281,8 @@ func ValidateGitRepo(ctx context.Context, rawPath string) (RepoLocation, error) 
 	verOut, _, _ := RunGit(ctx, loc, "--version")
 	loc.GitVersion = strings.TrimPrefix(strings.TrimSpace(verOut), "git version ")
 
+	resolveRepoCommonDir(ctx, &loc)
+
 	status, _ := GetRepoStatus(ctx, loc)
 	loc.CurrentBranch = status.Branch
 	loc.HeadSHA = status.HeadSHA
@@ -291,6 +293,56 @@ func ValidateGitRepo(ctx context.Context, rawPath string) (RepoLocation, error) 
 	loc.Behind = status.Behind
 
 	return loc, nil
+}
+
+func resolveRepoCommonDir(ctx context.Context, loc *RepoLocation) {
+	out, _, err := RunGit(ctx, *loc, "rev-parse", "--git-dir", "--git-common-dir")
+	if err != nil {
+		return
+	}
+	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(out), "\r\n", "\n"), "\n")
+	if len(lines) < 2 {
+		return
+	}
+	gitDir := strings.TrimSpace(lines[0])
+	commonDir := strings.TrimSpace(lines[1])
+	if gitDir == "" || commonDir == "" {
+		return
+	}
+	if loc.IsWSL {
+		if !strings.HasPrefix(gitDir, "/") {
+			gitDir = path.Join(loc.LinuxPath, gitDir)
+		}
+		if !strings.HasPrefix(commonDir, "/") {
+			commonDir = path.Join(loc.LinuxPath, commonDir)
+		}
+		gitDir = path.Clean(gitDir)
+		commonDir = path.Clean(commonDir)
+		loc.IsWorktree = gitDir != commonDir
+		loc.CommonDir = fmt.Sprintf("wsl://%s%s", loc.Distro, commonDir)
+		return
+	}
+
+	gitDir = filepath.FromSlash(gitDir)
+	commonDir = filepath.FromSlash(commonDir)
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(loc.Path, gitDir)
+	}
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(loc.Path, commonDir)
+	}
+	gitDir = normalizeLocalPathKey(gitDir)
+	commonDir = normalizeLocalPathKey(commonDir)
+	loc.IsWorktree = gitDir != commonDir
+	loc.CommonDir = commonDir
+}
+
+func normalizeLocalPathKey(p string) string {
+	clean := filepath.Clean(p)
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil && resolved != "" {
+		clean = resolved
+	}
+	return strings.ToLower(clean)
 }
 
 // InitRepo initializes a new Git repository in the target path.

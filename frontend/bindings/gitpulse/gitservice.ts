@@ -23,6 +23,10 @@ export function AbortMerge(repoPath: string): $CancellablePromise<git$0.OpResult
     return $Call.ByID(6565443, repoPath);
 }
 
+export function AddWorktree(repoPath: string, targetPath: string, branch: string, baseRef: string, createBranch: boolean, detach: boolean, force: boolean): $CancellablePromise<git$0.AddWorktreeResult> {
+    return $Call.ByID(3403308361, repoPath, targetPath, branch, baseRef, createBranch, detach, force);
+}
+
 export function BrowseWSLDir(distro: string, linuxPath: string): $CancellablePromise<$models.WSLBrowseResult> {
     return $Call.ByID(2952605726, distro, linuxPath);
 }
@@ -135,6 +139,10 @@ export function GetPinnedBranches(repoPath: string): $CancellablePromise<string[
     return $Call.ByID(1155485365, repoPath);
 }
 
+export function GetRecentCommitMessages(repoPath: string, limit: number): $CancellablePromise<git$0.RecentCommitMessage[] | null> {
+    return $Call.ByID(808693441, repoPath, limit);
+}
+
 export function GetRecentRepos(): $CancellablePromise<git$0.RecentRepo[] | null> {
     return $Call.ByID(2960567177);
 }
@@ -143,8 +151,8 @@ export function GetSavedTabs(): $CancellablePromise<$models.SavedTabsState> {
     return $Call.ByID(792066966);
 }
 
-export function GetStatus(repoPath: string): $CancellablePromise<git$0.RepoStatus> {
-    return $Call.ByID(2522644849, repoPath);
+export function GetStatus(repoPath: string, ignoreWhitespace: boolean): $CancellablePromise<git$0.RepoStatus> {
+    return $Call.ByID(2522644849, repoPath, ignoreWhitespace);
 }
 
 export function GetWorkingDiff(repoPath: string, relPath: string, staged: boolean, isUntracked: boolean, ignoreWhitespace: boolean): $CancellablePromise<git$0.FileDiff> {
@@ -179,6 +187,14 @@ export function ListWSLDistros(): $CancellablePromise<git$0.WSLDistro[] | null> 
     return $Call.ByID(1659833459);
 }
 
+export function ListWorktrees(repoPath: string): $CancellablePromise<git$0.WorktreeInfo[] | null> {
+    return $Call.ByID(1126437789, repoPath);
+}
+
+export function LockWorktree(repoPath: string, worktreePath: string, reason: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(43712283, repoPath, worktreePath, reason);
+}
+
 export function MergeBranch(repoPath: string, branchName: string): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(1469824071, repoPath, branchName);
 }
@@ -207,6 +223,10 @@ export function PickFolder(title: string): $CancellablePromise<string> {
     return $Call.ByID(539292812, title);
 }
 
+export function PruneWorktrees(repoPath: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(3711732775, repoPath);
+}
+
 export function Pull(repoPath: string): $CancellablePromise<git$0.OpResult> {
     return $Call.ByID(3924717390, repoPath);
 }
@@ -221,6 +241,10 @@ export function PushTag(repoPath: string, remoteName: string, tagName: string): 
 
 export function RemoveRecentRepo(repoPath: string): $CancellablePromise<git$0.RecentRepo[] | null> {
     return $Call.ByID(1638322250, repoPath);
+}
+
+export function RemoveWorktree(repoPath: string, worktreePath: string, force: boolean): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(3510277616, repoPath, worktreePath, force);
 }
 
 export function RenameBranch(repoPath: string, oldName: string, newName: string): $CancellablePromise<git$0.OpResult> {
@@ -317,6 +341,10 @@ export function TogglePinBranch(repoPath: string, fullName: string): $Cancellabl
 
 export function TogglePinRepo(repoPath: string): $CancellablePromise<git$0.RecentRepo[] | null> {
     return $Call.ByID(29978208, repoPath);
+}
+
+export function UnlockWorktree(repoPath: string, worktreePath: string): $CancellablePromise<git$0.OpResult> {
+    return $Call.ByID(1371699880, repoPath, worktreePath);
 }
 
 export function UnstageAll(repoPath: string): $CancellablePromise<void> {

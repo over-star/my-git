@@ -25,6 +25,7 @@ import {
   Check,
   Sparkles,
   RotateCw,
+  FolderTree,
 } from "lucide-react";
 import { Events } from "@wailsio/runtime";
 import type {
@@ -36,6 +37,7 @@ import type {
   RepoStatus,
   StashItem,
   TagInfo,
+  WorktreeInfo,
 } from "../bindings/gitpulse/internal/git/models";
 import { GitService, UpdateService } from "../bindings/gitpulse";
 import type { UpdateStatus } from "../bindings/gitpulse";
@@ -74,6 +76,13 @@ import {
   RevertCommitModal,
   StashModal,
 } from "./components/Dialogs";
+import {
+  CreateWorktreeModal,
+  CreateWorktreePayload,
+  LockWorktreeModal,
+  RemoveWorktreeModal,
+  WorktreeInUseModal,
+} from "./components/WorktreeModals";
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   autoCheckUpdates: true,
@@ -81,6 +90,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   diffFontSize: 12,
   autoRefreshOnFocus: true,
   defaultHistoryScope: "all",
+  ignoreWhitespace: false,
   githubToken: "",
 };
 
@@ -167,6 +177,7 @@ export function App() {
   const [tags, setTags] = useState<TagInfo[]>([]);
   const [stashes, setStashes] = useState<StashItem[]>([]);
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
+  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const [pinnedBranches, setPinnedBranches] = useState<string[]>([]);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [globalGitVer, setGlobalGitVer] = useState("");
@@ -216,6 +227,25 @@ export function App() {
   const [tagOpBusy, setTagOpBusy] = useState(false);
   const [revertTarget, setRevertTarget] = useState<CommitItem | null>(null);
   const [resetTarget, setResetTarget] = useState<CommitItem | null>(null);
+  const [createWorktreeModal, setCreateWorktreeModal] = useState<{
+    open: boolean;
+    mode: "new-branch" | "existing-branch" | "detach";
+    branch: string;
+    baseRef: string;
+  }>({
+    open: false,
+    mode: "new-branch",
+    branch: "",
+    baseRef: "",
+  });
+  const [removeWorktreeTarget, setRemoveWorktreeTarget] = useState<WorktreeInfo | null>(null);
+  const [lockWorktreeTarget, setLockWorktreeTarget] = useState<WorktreeInfo | null>(null);
+  const [worktreeBusy, setWorktreeBusy] = useState(false);
+  const [worktreeInUsePrompt, setWorktreeInUsePrompt] = useState<{
+    branchName: string;
+    worktree: WorktreeInfo | null;
+    errorMessage: string;
+  } | null>(null);
   const [gitConfigModal, setGitConfigModal] = useState<{
     open: boolean;
     scope: "local" | "global";
@@ -253,7 +283,7 @@ export function App() {
   const appSettingsRef = React.useRef<AppSettings>(appSettings);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     state: "idle",
-    currentVersion: "0.1.3",
+    currentVersion: "0.1.4",
     available: null,
     downloadedBytes: 0,
     totalBytes: 0,
@@ -325,6 +355,7 @@ export function App() {
         tags: TagInfo[];
         stashes: StashItem[];
         remotes: RemoteInfo[];
+        worktrees: WorktreeInfo[];
         pinnedBranches: string[];
         effectiveAuthor: {
           name: string;
@@ -344,6 +375,7 @@ export function App() {
         tags: TagInfo[];
         stashes: StashItem[];
         remotes: RemoteInfo[];
+        worktrees: WorktreeInfo[];
         pinnedBranches: string[];
         effectiveAuthor: {
           name: string;
@@ -358,6 +390,7 @@ export function App() {
         tags: [],
         stashes: [],
         remotes: [],
+        worktrees: [],
         pinnedBranches: [],
         effectiveAuthor: { name: "", email: "", source: "none" as const },
       };
@@ -410,7 +443,7 @@ export function App() {
             updateRepoCache(target, { pinnedBranches: nextPins });
           }),
 
-        GitService.GetStatus(target)
+        GitService.GetStatus(target, appSettingsRef.current.ignoreWhitespace)
           .then((st) => {
             if (seq !== refreshSeqRef.current) return;
             setStatus(st);
@@ -458,6 +491,15 @@ export function App() {
             updateRepoCache(target, { remotes: nextRemotes });
           }),
 
+        GitService.ListWorktrees(target)
+          .catch(() => [] as WorktreeInfo[])
+          .then((wts) => {
+            if (seq !== refreshSeqRef.current) return;
+            const nextWts = wts ?? [];
+            setWorktrees(nextWts);
+            updateRepoCache(target, { worktrees: nextWts });
+          }),
+
         GitService.GetGitConfig(target, "")
           .then((cfg) => {
             if (seq !== refreshSeqRef.current) return;
@@ -489,10 +531,18 @@ export function App() {
         notify("error", `Refresh failed: ${firstError}`);
       } else if (!opts?.skipHistoryBump) {
         setHistoryRefreshKey((k) => k + 1);
+        const curTab = tabs.find((t) => t.path === target);
+        if (curTab?.commonDir) {
+          for (const t of tabs) {
+            if (t.path !== target && t.commonDir === curTab.commonDir) {
+              delete repoCacheRef.current[t.path];
+            }
+          }
+        }
       }
       setRefreshing(false);
     },
-    [activePath, notify, updateRepoCache]
+    [activePath, notify, tabs, updateRepoCache]
   );
 
   // Restore saved tabs & layout on startup
@@ -597,6 +647,20 @@ export function App() {
     );
   }, [tabs, activePath]);
 
+  const prevIgnoreWsRef = React.useRef<boolean>(appSettings.ignoreWhitespace);
+  useEffect(() => {
+    if (prevIgnoreWsRef.current === appSettings.ignoreWhitespace) return;
+    prevIgnoreWsRef.current = appSettings.ignoreWhitespace;
+    for (const k of Object.keys(repoCacheRef.current)) {
+      if (k !== activePath) {
+        delete repoCacheRef.current[k];
+      }
+    }
+    if (activePath) {
+      refreshRepo(activePath, { skipHistoryBump: true });
+    }
+  }, [appSettings.ignoreWhitespace, activePath, refreshRepo]);
+
   // Refresh whenever activePath changes
   useEffect(() => {
     const scope =
@@ -612,6 +676,7 @@ export function App() {
       setTags(cached.tags);
       setStashes(cached.stashes);
       setRemotes(cached.remotes);
+      setWorktrees(cached.worktrees);
       setPinnedBranches(cached.pinnedBranches);
       setEffectiveAuthor(cached.effectiveAuthor);
     } else {
@@ -620,6 +685,7 @@ export function App() {
       setTags([]);
       setStashes([]);
       setRemotes([]);
+      setWorktrees([]);
       setPinnedBranches([]);
     }
     setRepoSwitcherOpen(false);
@@ -808,31 +874,92 @@ export function App() {
   };
 
   // --- Remote Actions ---
+  const executePush = async (
+    repoPath: string,
+    opts?: { fromCommit?: boolean; amended?: boolean }
+  ) => {
+    if (!repoPath || remoteBusy) return;
+    setRemoteBusy("push");
+    try {
+      const res = await GitService.Push(repoPath);
+      if (res.success) {
+        if (opts?.fromCommit) {
+          notify(
+            "success",
+            opts.amended
+              ? `Amended commit & pushed (${res.message})`
+              : `Committed & pushed (${res.message})`
+          );
+        } else {
+          notify("success", res.message);
+        }
+      } else if (
+        res.errorCode === "HTTPS_REMOTE" &&
+        (await promptHttpsRemoteIfNeeded(
+          repoPath,
+          res.message || "HTTPS push failed"
+        ))
+      ) {
+        if (opts?.fromCommit) {
+          notify(
+            "info",
+            "Commit succeeded locally. Switch remote to SSH to push."
+          );
+        }
+      } else if (
+        await promptRemoteConfigIfNeeded(
+          repoPath,
+          "push",
+          res.errorCode,
+          res.output || res.message || "push failed"
+        )
+      ) {
+        if (opts?.fromCommit) {
+          notify(
+            "info",
+            "Commit succeeded locally. Configure remote to push."
+          );
+        }
+      } else {
+        notify(
+          "error",
+          opts?.fromCommit
+            ? `Committed locally, but push failed: ${res.message || "push failed"}`
+            : res.message || "push failed"
+        );
+      }
+      await refreshRepo(repoPath);
+    } catch (err) {
+      notify(
+        "error",
+        opts?.fromCommit
+          ? `Committed locally, but push failed: ${err}`
+          : String(err)
+      );
+      await refreshRepo(repoPath);
+    } finally {
+      setRemoteBusy(null);
+    }
+  };
+
   const handleRemote = async (op: "fetch" | "pull" | "push") => {
     if (!activeRepo || remoteBusy) return;
+    if (op === "push") {
+      await executePush(activeRepo.path);
+      return;
+    }
     setRemoteBusy(op);
     try {
       const res =
         op === "fetch"
           ? await GitService.Fetch(activeRepo.path)
-          : op === "pull"
-          ? await GitService.Pull(activeRepo.path)
-          : await GitService.Push(activeRepo.path);
+          : await GitService.Pull(activeRepo.path);
 
       if (res.success) {
         notify("success", res.message);
       } else if (res.errorCode === "CONFLICT") {
         notify("error", "Pull resulted in merge conflicts! Resolve them in Conflict Resolver.");
         setView("conflicts");
-      } else if (
-        op === "push" &&
-        res.errorCode === "HTTPS_REMOTE" &&
-        (await promptHttpsRemoteIfNeeded(
-          activeRepo.path,
-          res.message || "HTTPS push failed"
-        ))
-      ) {
-        // Modal displayed
       } else if (
         await promptRemoteConfigIfNeeded(
           activeRepo.path,
@@ -853,6 +980,179 @@ export function App() {
     }
   };
 
+  // --- Worktree Actions ---
+  const invalidateSiblingCaches = useCallback(
+    (sourceRepo: RepoLocation | null) => {
+      if (!sourceRepo?.commonDir) return;
+      for (const t of tabs) {
+        if (t.path !== sourceRepo.path && t.commonDir === sourceRepo.commonDir) {
+          delete repoCacheRef.current[t.path];
+        }
+      }
+    },
+    [tabs]
+  );
+
+  const handleOpenWorktree = async (wt: WorktreeInfo) => {
+    const existing = tabs.find(
+      (t) => t.path.toLowerCase() === wt.path.toLowerCase()
+    );
+    if (existing) {
+      setActivePath(existing.path);
+      return;
+    }
+    try {
+      const loc = await GitService.OpenRepo(wt.path);
+      handleOpenedRepo(loc);
+    } catch (err) {
+      notify("error", `Failed to open worktree: ${err}`);
+    }
+  };
+
+  const handleCreateWorktree = async (payload: CreateWorktreePayload) => {
+    if (!activeRepo) return;
+    setWorktreeBusy(true);
+    try {
+      const res = await GitService.AddWorktree(
+        activeRepo.path,
+        payload.targetPath,
+        payload.branch,
+        payload.baseRef,
+        payload.createBranch,
+        payload.detach,
+        payload.force
+      );
+      if (!res.result.success) {
+        if (res.result.errorCode === "WORKTREE_IN_USE") {
+          const holder =
+            worktrees.find((w) => w.branch === payload.branch) ?? null;
+          setCreateWorktreeModal((m) => ({ ...m, open: false }));
+          setWorktreeInUsePrompt({
+            branchName: payload.branch,
+            worktree: holder,
+            errorMessage: res.result.output || res.result.message,
+          });
+          return;
+        }
+        notify("error", res.result.message || "Create worktree failed");
+        return;
+      }
+
+      setCreateWorktreeModal((m) => ({ ...m, open: false }));
+      notify("success", res.result.message);
+      invalidateSiblingCaches(activeRepo);
+      if (payload.openInTab && res.repo?.path) {
+        const loc = await GitService.OpenRepo(res.repo.path).catch(
+          () => res.repo
+        );
+        handleOpenedRepo(loc);
+      } else {
+        await refreshRepo(activeRepo.path);
+      }
+    } catch (err) {
+      notify("error", String(err));
+    } finally {
+      setWorktreeBusy(false);
+    }
+  };
+
+  const handleRemoveWorktree = async (
+    wt: WorktreeInfo,
+    force: boolean,
+    unlockFirst: boolean
+  ) => {
+    if (!activeRepo) return;
+    setWorktreeBusy(true);
+    try {
+      if (wt.isLocked && unlockFirst) {
+        const unRes = await GitService.UnlockWorktree(activeRepo.path, wt.path);
+        if (!unRes.success) {
+          notify("error", unRes.message || "Failed to unlock worktree");
+          return;
+        }
+      }
+      const res = await GitService.RemoveWorktree(
+        activeRepo.path,
+        wt.path,
+        force
+      );
+      if (!res.success) {
+        notify("error", res.message || "Remove worktree failed");
+        return;
+      }
+      setRemoveWorktreeTarget(null);
+      notify("success", res.message);
+      const openTab = tabs.find(
+        (t) => t.path.toLowerCase() === wt.path.toLowerCase()
+      );
+      if (openTab) {
+        closeTabByPath(openTab.path);
+      }
+      invalidateSiblingCaches(activeRepo);
+      await refreshRepo(activeRepo.path);
+    } catch (err) {
+      notify("error", String(err));
+    } finally {
+      setWorktreeBusy(false);
+    }
+  };
+
+  const handleLockWorktree = async (wt: WorktreeInfo, reason: string) => {
+    if (!activeRepo) return;
+    setWorktreeBusy(true);
+    try {
+      const res = await GitService.LockWorktree(
+        activeRepo.path,
+        wt.path,
+        reason
+      );
+      if (res.success) {
+        setLockWorktreeTarget(null);
+        notify("success", res.message);
+        invalidateSiblingCaches(activeRepo);
+        await refreshRepo(activeRepo.path);
+      } else {
+        notify("error", res.message || "Lock worktree failed");
+      }
+    } catch (err) {
+      notify("error", String(err));
+    } finally {
+      setWorktreeBusy(false);
+    }
+  };
+
+  const handleUnlockWorktree = async (wt: WorktreeInfo) => {
+    if (!activeRepo) return;
+    try {
+      const res = await GitService.UnlockWorktree(activeRepo.path, wt.path);
+      if (res.success) {
+        notify("success", res.message);
+        invalidateSiblingCaches(activeRepo);
+        await refreshRepo(activeRepo.path);
+      } else {
+        notify("error", res.message || "Unlock worktree failed");
+      }
+    } catch (err) {
+      notify("error", String(err));
+    }
+  };
+
+  const handlePruneWorktrees = async () => {
+    if (!activeRepo) return;
+    try {
+      const res = await GitService.PruneWorktrees(activeRepo.path);
+      if (res.success) {
+        notify("success", res.message);
+        invalidateSiblingCaches(activeRepo);
+        await refreshRepo(activeRepo.path);
+      } else {
+        notify("error", res.message || "Prune worktrees failed");
+      }
+    } catch (err) {
+      notify("error", String(err));
+    }
+  };
+
   // --- Branch, Tag & Stash Actions ---
   const handleCheckout = async (name: string, isRemote: boolean) => {
     if (!activeRepo) return;
@@ -866,6 +1166,18 @@ export function App() {
           name,
           isRemote,
           kind: "branch",
+          errorMessage: res.output || res.message,
+        });
+      } else if (res.errorCode === "WORKTREE_IN_USE") {
+        const localName =
+          isRemote && name.includes("/")
+            ? name.slice(name.indexOf("/") + 1)
+            : name;
+        const holder =
+          worktrees.find((w) => w.branch === localName && !w.isCurrent) ?? null;
+        setWorktreeInUsePrompt({
+          branchName: localName,
+          worktree: holder,
           errorMessage: res.output || res.message,
         });
       } else {
@@ -1392,6 +1704,11 @@ export function App() {
                                   >
                                     {t.name}
                                   </span>
+                                  {t.isWorktree && (
+                                    <span className="px-1.5 py-[1px] rounded-full bg-[#f0fdfa] border border-[#99f6e4] text-[#0f766e] text-[9px] font-mono font-semibold shrink-0">
+                                      WT
+                                    </span>
+                                  )}
                                   {t.isWsl && (
                                     <span className="px-1.5 py-[1px] rounded-full bg-[#ede9fe] text-[#6d28d9] text-[9px] font-mono font-semibold shrink-0">
                                       WSL2
@@ -1450,9 +1767,9 @@ export function App() {
               const active = tab.path === activePath;
               const nextActive = tabs[idx + 1]?.path === activePath;
               const showDivider = !active && !nextActive && idx < tabs.length - 1;
-              const tabTitle = tab.isWsl
-                ? `WSL2 (${tab.distro}): ${tab.linuxPath}`
-                : tab.path;
+              const tabTitle = `${tab.isWsl ? `WSL2 (${tab.distro}): ${tab.linuxPath}` : tab.path}${
+                tab.isWorktree ? " (Worktree)" : ""
+              }`;
               return (
                 <React.Fragment key={tab.path}>
                   <div
@@ -1481,18 +1798,39 @@ export function App() {
                     }`}
                   >
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <FolderGit2
-                        className={`w-3.5 h-3.5 shrink-0 transition-colors ${
-                          tab.isWsl
-                            ? active
-                              ? "text-[#7c3aed]"
-                              : "text-[#7c3aed]/80 group-hover:text-[#7c3aed]"
-                            : active
-                            ? "text-[#0284c7]"
-                            : "text-[#0284c7]/80 group-hover:text-[#0284c7]"
-                        }`}
-                      />
+                      {tab.isWorktree ? (
+                        <FolderTree
+                          className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                            active
+                              ? "text-[#0f766e]"
+                              : "text-[#0f766e]/80 group-hover:text-[#0f766e]"
+                          }`}
+                        />
+                      ) : (
+                        <FolderGit2
+                          className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                            tab.isWsl
+                              ? active
+                                ? "text-[#7c3aed]"
+                                : "text-[#7c3aed]/80 group-hover:text-[#7c3aed]"
+                              : active
+                              ? "text-[#0284c7]"
+                              : "text-[#0284c7]/80 group-hover:text-[#0284c7]"
+                          }`}
+                        />
+                      )}
                       <span className="truncate">{tab.name}</span>
+                      {tab.isWorktree && (
+                        <span
+                          className={`px-1.5 py-[1px] rounded-full text-[9px] font-mono font-semibold leading-none shrink-0 ${
+                            active
+                              ? "bg-[#f0fdfa] text-[#0f766e]"
+                              : "bg-white/60 text-[#0f766e]"
+                          }`}
+                        >
+                          WT
+                        </span>
+                      )}
                       {tab.isWsl && (
                         <span
                           className={`px-1.5 py-[1px] rounded-full text-[9px] font-mono font-semibold leading-none shrink-0 ${
@@ -1659,6 +1997,22 @@ export function App() {
           >
             <TagIcon className="w-3.5 h-3.5 text-[#475569]" />
             Tag
+          </button>
+          <button
+            disabled={!activeRepo}
+            title="Create New Git Worktree"
+            onClick={() =>
+              setCreateWorktreeModal({
+                open: true,
+                mode: "new-branch",
+                branch: "",
+                baseRef: "",
+              })
+            }
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded hover:bg-[#f1f5f9] text-[12px] font-medium text-[#334155] disabled:opacity-45 cursor-pointer"
+          >
+            <FolderTree className="w-3.5 h-3.5 text-[#0f766e]" />
+            Worktree
           </button>
 
           <div className="h-4 w-px bg-[#e2e8f0] mx-1" />
@@ -1879,6 +2233,8 @@ export function App() {
               tags={tags}
               stashes={stashes}
               remotes={remotes}
+              worktrees={worktrees}
+              openTabPaths={tabs.map((t) => t.path)}
               pinnedBranches={pinnedBranches}
               currentBranch={status?.branch || ""}
               activeHistoryBranch={view === "history" ? historyBranch : ""}
@@ -1962,6 +2318,25 @@ export function App() {
               onStashApply={(ref) => handleStashOp("apply", ref)}
               onStashPop={(ref) => handleStashOp("pop", ref)}
               onStashDrop={(stash) => setDropStashTarget(stash)}
+              onOpenWorktree={handleOpenWorktree}
+              onRequestCreateWorktree={(opts) =>
+                setCreateWorktreeModal({
+                  open: true,
+                  mode: opts?.mode ?? "new-branch",
+                  branch: opts?.branch ?? "",
+                  baseRef: opts?.baseRef ?? "",
+                })
+              }
+              onRequestRemoveWorktree={(wt) => setRemoveWorktreeTarget(wt)}
+              onRequestLockWorktree={(wt) => setLockWorktreeTarget(wt)}
+              onUnlockWorktree={handleUnlockWorktree}
+              onPruneWorktrees={handlePruneWorktrees}
+              onOpenWorktreeInExplorer={(wt) =>
+                GitService.OpenInExplorer(wt.path, "")
+              }
+              onOpenWorktreeInTerminal={(wt) =>
+                GitService.OpenInTerminal(wt.path)
+              }
               onNotify={notify}
             />
 
@@ -1998,8 +2373,16 @@ export function App() {
                   status={status}
                   leftRatio={layout.changesLeftRatio}
                   unstagedRatio={layout.changesUnstagedRatio}
+                  ignoreWhitespace={Boolean(appSettings.ignoreWhitespace)}
+                  pushBusy={remoteBusy !== null}
+                  onToggleIgnoreWhitespace={(ignore) =>
+                    updateAppSettings({ ignoreWhitespace: ignore })
+                  }
                   onChangeRatios={updateLayout}
                   onRefresh={() => refreshRepo(activeRepo.path)}
+                  onPushAfterCommit={(amended) =>
+                    executePush(activeRepo.path, { fromCommit: true, amended })
+                  }
                   onOpenConflictResolver={() => setView("conflicts")}
                   onOpenGitConfig={(sc = "local") =>
                     setGitConfigModal({ open: true, scope: sc })
@@ -2029,6 +2412,7 @@ export function App() {
                   focusCommitSignal={focusCommitSignal}
                   refreshKey={historyRefreshKey}
                   externalSearch={quickFilter}
+                  defaultIgnoreWhitespace={Boolean(appSettings.ignoreWhitespace)}
                   bottomRatio={layout.historyBottomRatio}
                   detailLeftRatio={layout.historyDetailLeftRatio}
                   onChangeRatios={updateLayout}
@@ -2041,6 +2425,14 @@ export function App() {
                   }
                   onCreateTagFromCommit={(sha) =>
                     setTagModal({ open: true, target: sha })
+                  }
+                  onCreateWorktreeFromCommit={(sha) =>
+                    setCreateWorktreeModal({
+                      open: true,
+                      mode: "new-branch",
+                      branch: "",
+                      baseRef: sha,
+                    })
                   }
                   onRequestRevertCommit={(c) => setRevertTarget(c)}
                   onRequestResetCommit={(c) => setResetTarget(c)}
@@ -2116,6 +2508,11 @@ export function App() {
           )}
         </div>
         <div className="flex items-center gap-3 font-mono text-[10px] text-[#64748b]">
+          {activeRepo?.isWorktree && (
+            <span className="px-1.5 py-[1px] rounded bg-[#f0fdfa] border border-[#99f6e4] text-[#0f766e] font-semibold">
+              Worktree
+            </span>
+          )}
           {activeRepo && (
             <span className="truncate max-w-[360px]" title={activeRepo.path}>
               {activeRepo.isWsl
@@ -2256,6 +2653,44 @@ export function App() {
         onGoToChanges={() => {
           setCheckoutConflict(null);
           setView("changes");
+        }}
+      />
+
+      <CreateWorktreeModal
+        open={createWorktreeModal.open}
+        repo={activeRepo}
+        branches={branches}
+        worktrees={worktrees}
+        initialMode={createWorktreeModal.mode}
+        initialBranch={createWorktreeModal.branch}
+        initialBaseRef={createWorktreeModal.baseRef}
+        busy={worktreeBusy}
+        onCancel={() =>
+          setCreateWorktreeModal((m) => ({ ...m, open: false }))
+        }
+        onConfirm={handleCreateWorktree}
+      />
+
+      <RemoveWorktreeModal
+        worktree={removeWorktreeTarget}
+        busy={worktreeBusy}
+        onCancel={() => setRemoveWorktreeTarget(null)}
+        onConfirm={handleRemoveWorktree}
+      />
+
+      <LockWorktreeModal
+        worktree={lockWorktreeTarget}
+        busy={worktreeBusy}
+        onCancel={() => setLockWorktreeTarget(null)}
+        onConfirm={handleLockWorktree}
+      />
+
+      <WorktreeInUseModal
+        info={worktreeInUsePrompt}
+        onCancel={() => setWorktreeInUsePrompt(null)}
+        onSwitchToWorktree={(wt) => {
+          setWorktreeInUsePrompt(null);
+          handleOpenWorktree(wt);
         }}
       />
 

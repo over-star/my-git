@@ -206,6 +206,25 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
               />
             </label>
 
+            <label className="flex items-center justify-between gap-3 cursor-pointer">
+              <div>
+                <div className="font-medium text-[#0b1c30]">
+                  忽略空白字符变更 (Ignore Whitespace)
+                </div>
+                <div className="text-[11px] text-[#64748b]">
+                  忽略空格、制表符及换行符引起的纯空白变更；开启后纯空白修改的文件不计入变更列表并在 Diff 中过滤
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={Boolean(settings.ignoreWhitespace)}
+                onChange={(e) =>
+                  onUpdateSettings({ ignoreWhitespace: e.target.checked })
+                }
+                className="w-4 h-4 accent-[#0284c7] cursor-pointer shrink-0"
+              />
+            </label>
+
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="font-medium text-[#0b1c30]">

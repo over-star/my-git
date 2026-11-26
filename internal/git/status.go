@@ -14,6 +14,13 @@ import (
 
 // GetRepoStatus returns staged, unstaged, conflicted files and branch tracking metadata.
 func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
+	return GetRepoStatusWithOptions(ctx, loc, false)
+}
+
+// GetRepoStatusWithOptions returns staged, unstaged, conflicted files and branch tracking metadata.
+// When ignoreWhitespace is true, tracked regular-file modifications whose diff under `git diff -w`
+// is empty (and have no file mode change) are excluded from Staged and Unstaged lists.
+func GetRepoStatusWithOptions(ctx context.Context, loc RepoLocation, ignoreWhitespace bool) (RepoStatus, error) {
 	st := RepoStatus{
 		Unstaged:   []FileStatus{},
 		Staged:     []FileStatus{},
@@ -26,6 +33,8 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 	}
 
 	hasUnstagedTracked := false
+	unstagedWsEligible := make(map[string]bool)
+	stagedWsEligible := make(map[string]bool)
 	tokens := strings.Split(out, "\x00")
 	for i := 0; i < len(tokens); i++ {
 		line := tokens[i]
@@ -44,7 +53,10 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 				continue
 			}
 			xy := fields[1]
+			sub := fields[2]
+			mH, mI, mW := fields[3], fields[4], fields[5]
 			filePath := fields[8]
+			isRegular := len(sub) == 0 || sub[0] != 'S'
 			x, y := xy[0], xy[1]
 			if x != '.' {
 				st.Staged = append(st.Staged, FileStatus{
@@ -52,6 +64,9 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 					Status: string(x),
 					Staged: true,
 				})
+				if isRegular && x == 'M' && mH == mI {
+					stagedWsEligible[filePath] = true
+				}
 			}
 			if y != '.' {
 				hasUnstagedTracked = true
@@ -60,6 +75,9 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 					Status: string(y),
 					Staged: false,
 				})
+				if isRegular && y == 'M' && mI == mW {
+					unstagedWsEligible[filePath] = true
+				}
 			}
 		case '2': // Renamed or copied entry: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\0<origPath>
 			fields := strings.SplitN(line, " ", 10)
@@ -118,27 +136,46 @@ func GetRepoStatus(ctx context.Context, loc RepoLocation) (RepoStatus, error) {
 	}
 
 	if hasUnstagedTracked {
-		unstagedStats := parseNumstat(ctx, loc, false)
-		for i := range st.Unstaged {
-			if st.Unstaged[i].Conflicted || st.Unstaged[i].Status == "?" {
+		unstagedStats := parseNumstat(ctx, loc, false, ignoreWhitespace)
+		filteredUnstaged := st.Unstaged[:0]
+		for _, item := range st.Unstaged {
+			if item.Conflicted || item.Status == "?" {
+				filteredUnstaged = append(filteredUnstaged, item)
 				continue
 			}
-			if stat, ok := unstagedStats[st.Unstaged[i].Path]; ok {
-				st.Unstaged[i].Additions = stat.add
-				st.Unstaged[i].Deletions = stat.del
-				st.Unstaged[i].IsBinary = stat.binary
+			stat, ok := unstagedStats[item.Path]
+			if ignoreWhitespace && unstagedWsEligible[item.Path] {
+				if !ok || (!stat.binary && stat.add == 0 && stat.del == 0) {
+					continue
+				}
 			}
+			if ok {
+				item.Additions = stat.add
+				item.Deletions = stat.del
+				item.IsBinary = stat.binary
+			}
+			filteredUnstaged = append(filteredUnstaged, item)
 		}
+		st.Unstaged = filteredUnstaged
 	}
 	if len(st.Staged) > 0 {
-		stagedStats := parseNumstat(ctx, loc, true)
-		for i := range st.Staged {
-			if stat, ok := stagedStats[st.Staged[i].Path]; ok {
-				st.Staged[i].Additions = stat.add
-				st.Staged[i].Deletions = stat.del
-				st.Staged[i].IsBinary = stat.binary
+		stagedStats := parseNumstat(ctx, loc, true, ignoreWhitespace)
+		filteredStaged := st.Staged[:0]
+		for _, item := range st.Staged {
+			stat, ok := stagedStats[item.Path]
+			if ignoreWhitespace && stagedWsEligible[item.Path] {
+				if !ok || (!stat.binary && stat.add == 0 && stat.del == 0) {
+					continue
+				}
 			}
+			if ok {
+				item.Additions = stat.add
+				item.Deletions = stat.del
+				item.IsBinary = stat.binary
+			}
+			filteredStaged = append(filteredStaged, item)
 		}
+		st.Staged = filteredStaged
 	}
 
 	st.MergeState, st.MergeBranch = detectMergeState(ctx, loc)
@@ -190,12 +227,16 @@ type numStat struct {
 	binary bool
 }
 
-func parseNumstat(ctx context.Context, loc RepoLocation, cached bool) map[string]numStat {
+func parseNumstat(ctx context.Context, loc RepoLocation, cached bool, ignoreWhitespace bool) map[string]numStat {
 	res := make(map[string]numStat)
-	args := []string{"diff", "--numstat", "-z"}
-	if cached {
-		args = []string{"diff", "--cached", "--numstat", "-z"}
+	args := []string{"diff"}
+	if ignoreWhitespace {
+		args = append(args, "-w")
 	}
+	if cached {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--numstat", "-z")
 	out, _, err := RunGit(ctx, loc, args...)
 	if err != nil || out == "" {
 		return res

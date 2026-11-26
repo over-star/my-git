@@ -7,6 +7,7 @@ export interface AppSettings {
     "diffFontSize": number;
     "autoRefreshOnFocus": boolean;
     "defaultHistoryScope": string;
+    "ignoreWhitespace": boolean;
     "githubToken": string;
 }
 

@@ -25,6 +25,7 @@ type AppSettings struct {
 	DiffFontSize        int    `json:"diffFontSize"`
 	AutoRefreshOnFocus  bool   `json:"autoRefreshOnFocus"`
 	DefaultHistoryScope string `json:"defaultHistoryScope"`
+	IgnoreWhitespace    bool   `json:"ignoreWhitespace"`
 	GithubToken         string `json:"githubToken"`
 }
 

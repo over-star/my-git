@@ -22,12 +22,20 @@ import {
   UploadCloud,
   Pin,
   PinOff,
+  FolderTree,
+  Lock,
+  Unlock,
+  AlertTriangle,
+  Terminal,
+  ExternalLink,
+  Eraser,
 } from "lucide-react";
 import type {
   BranchInfo,
   RemoteInfo,
   StashItem,
   TagInfo,
+  WorktreeInfo,
 } from "../../bindings/gitpulse/internal/git/models";
 
 interface SidebarProps {
@@ -36,6 +44,8 @@ interface SidebarProps {
   tags: TagInfo[];
   stashes: StashItem[];
   remotes: RemoteInfo[];
+  worktrees: WorktreeInfo[];
+  openTabPaths: string[];
   pinnedBranches: string[];
   currentBranch: string;
   activeHistoryBranch: string;
@@ -62,13 +72,26 @@ interface SidebarProps {
   onStashApply: (ref: string) => void;
   onStashPop: (ref: string) => void;
   onStashDrop: (stash: StashItem) => void;
+  onOpenWorktree: (wt: WorktreeInfo) => void;
+  onRequestCreateWorktree: (opts?: {
+    mode?: "new-branch" | "existing-branch" | "detach";
+    branch?: string;
+    baseRef?: string;
+  }) => void;
+  onRequestRemoveWorktree: (wt: WorktreeInfo) => void;
+  onRequestLockWorktree: (wt: WorktreeInfo) => void;
+  onUnlockWorktree: (wt: WorktreeInfo) => void;
+  onPruneWorktrees: () => void;
+  onOpenWorktreeInExplorer: (wt: WorktreeInfo) => void;
+  onOpenWorktreeInTerminal: (wt: WorktreeInfo) => void;
   onNotify: (type: "success" | "error" | "info", msg: string) => void;
 }
 
 type ContextMenuState =
   | { kind: "branch"; x: number; y: number; branch: BranchInfo }
   | { kind: "tag"; x: number; y: number; tag: TagInfo }
-  | { kind: "stash"; x: number; y: number; stash: StashItem };
+  | { kind: "stash"; x: number; y: number; stash: StashItem }
+  | { kind: "worktree"; x: number; y: number; worktree: WorktreeInfo };
 
 interface BranchTreeNode {
   name: string;
@@ -144,6 +167,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tags,
   stashes,
   remotes,
+  worktrees,
+  openTabPaths,
   pinnedBranches,
   currentBranch,
   activeHistoryBranch,
@@ -166,9 +191,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onStashApply,
   onStashPop,
   onStashDrop,
+  onOpenWorktree,
+  onRequestCreateWorktree,
+  onRequestRemoveWorktree,
+  onRequestLockWorktree,
+  onUnlockWorktree,
+  onPruneWorktrees,
+  onOpenWorktreeInExplorer,
+  onOpenWorktreeInTerminal,
   onNotify,
 }) => {
   const [openPinned, setOpenPinned] = useState(true);
+  const [openWorktrees, setOpenWorktrees] = useState(true);
   const [openLocal, setOpenLocal] = useState(true);
   const [openRemotes, setOpenRemotes] = useState(true);
   const [openTags, setOpenTags] = useState(false);
@@ -248,9 +282,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setCtxMenu({ kind: "stash", x, y, stash });
   };
 
+  const openWorktreeContextMenu = (
+    e: React.MouseEvent,
+    wt: WorktreeInfo
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const { x, y } = clampMenuPos(e, 270);
+    setCtxMenu({ kind: "worktree", x, y, worktree: wt });
+  };
+
   const selectedBranch = ctxMenu?.kind === "branch" ? ctxMenu.branch : null;
   const selectedTag = ctxMenu?.kind === "tag" ? ctxMenu.tag : null;
   const selectedStash = ctxMenu?.kind === "stash" ? ctxMenu.stash : null;
+  const selectedWorktree =
+    ctxMenu?.kind === "worktree" ? ctxMenu.worktree : null;
+
+  const worktreeByBranch = useMemo(() => {
+    const map = new Map<string, WorktreeInfo>();
+    for (const wt of worktrees) {
+      if (wt.branch) {
+        map.set(wt.branch, wt);
+      }
+    }
+    return map;
+  }, [worktrees]);
+
+  const openTabPathSet = useMemo(
+    () => new Set(openTabPaths.map((p) => p.toLowerCase())),
+    [openTabPaths]
+  );
+
+  const hasPrunableWorktree = useMemo(
+    () => worktrees.some((wt) => wt.isPrunable),
+    [worktrees]
+  );
+
+  const selectedBranchHolder =
+    selectedBranch && !selectedBranch.isRemote
+      ? worktreeByBranch.get(selectedBranch.name)
+      : undefined;
+  const selectedBranchInOtherWorktree =
+    selectedBranchHolder && !selectedBranchHolder.isCurrent
+      ? selectedBranchHolder
+      : undefined;
 
   const isMainBranchName = (name: string, isRemote: boolean) => {
     if (!isRemote) return name === "main";
@@ -263,6 +338,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     !!selectedBranch &&
     !selectedBranch.isRemote &&
     !selectedBranch.isCurrent &&
+    !selectedBranchInOtherWorktree &&
     !isMainBranchName(selectedBranch.name, false);
   const canDeleteRemoteBranch =
     !!selectedBranch &&
@@ -356,6 +432,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const rowKey = `${keyPrefix}:${b.fullName}`;
     const isSelected = selectedRef === rowKey;
     const isPinned = pinnedSet.has(b.fullName);
+    const holderWt = !b.isRemote ? worktreeByBranch.get(b.name) : undefined;
+    const otherWt = holderWt && !holderWt.isCurrent ? holderWt : undefined;
     return (
       <div
         key={rowKey}
@@ -364,6 +442,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onInspectBranch(b.fullName, b.lastSha);
         }}
         onDoubleClick={() => {
+          if (otherWt) {
+            onOpenWorktree(otherWt);
+            return;
+          }
           if (b.isRemote || !b.isCurrent) onCheckout(b.name, b.isRemote);
         }}
         onContextMenu={(e) => openBranchContextMenu(e, b, keyPrefix)}
@@ -371,6 +453,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         title={
           b.isCurrent
             ? `Current branch: ${b.name} · Click to view Commit Graph · Right-click for actions`
+            : otherWt
+            ? `Checked out in worktree "${otherWt.name}" (${otherWt.rawPath}) · Double-click to switch to worktree tab · Right-click for actions`
             : b.isRemote
             ? `Click to view Commit Graph · Double-click to checkout tracking branch for ${b.name} · Right-click for actions`
             : `Click to view Commit Graph · Double-click to checkout ${b.name} · Right-click for actions`
@@ -475,6 +559,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <Pin className="w-3.5 h-3.5 fill-current" />
             </span>
+          )}
+          {otherWt && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenWorktree(otherWt);
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              title={`Checked out in worktree "${otherWt.name}" (${otherWt.rawPath}) · Click to open tab`}
+              className={`px-1 py-[1px] rounded inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold cursor-pointer ${
+                isSelected
+                  ? "bg-white/20 text-white hover:bg-white/30"
+                  : "bg-[#f0fdfa] border border-[#99f6e4] text-[#0f766e] hover:bg-[#ccfbf1]"
+              }`}
+            >
+              <FolderTree className="w-3 h-3" />
+              <span className="max-w-[56px] truncate">{otherWt.name}</span>
+            </button>
           )}
           {b.isCurrent && (
             <span
@@ -589,6 +692,154 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
       )}
+
+      {/* WORKTREES */}
+      <div>
+        <div className="flex items-center justify-between px-1.5 py-1 text-[#64748b] hover:text-[#0b1c30]">
+          <button
+            onClick={() => setOpenWorktrees((v) => !v)}
+            className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
+          >
+            {openWorktrees ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            )}
+            <span>Worktrees</span>
+          </button>
+          <div className="flex items-center gap-1">
+            <span className="font-mono text-[11px] text-[#94a3b8]">
+              {worktrees.length}
+            </span>
+            {hasPrunableWorktree && (
+              <button
+                title="Prune stale worktrees"
+                onClick={onPruneWorktrees}
+                className="p-0.5 rounded hover:bg-[#fef3c7] text-[#d97706] cursor-pointer"
+              >
+                <Eraser className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              title="Create New Worktree"
+              onClick={() => onRequestCreateWorktree({ mode: "new-branch" })}
+              className="p-0.5 rounded hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0284c7] cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {openWorktrees && (
+          <div className="pl-2 flex flex-col gap-0.5">
+            {worktrees.length === 0 ? (
+              <div className="px-2 py-1 text-[12px] text-[#94a3b8]">
+                No worktrees
+              </div>
+            ) : (
+              worktrees.map((wt) => {
+                const isOpenInTab =
+                  !wt.isCurrent && openTabPathSet.has(wt.path.toLowerCase());
+                const canOpen = !wt.isCurrent && !wt.isBare && !wt.isPrunable;
+                const branchLabel = wt.isBare
+                  ? "(bare)"
+                  : wt.branch
+                  ? wt.branch
+                  : wt.isDetached
+                  ? `detached@${wt.headSha}`
+                  : wt.headSha;
+                return (
+                  <div
+                    key={wt.path}
+                    onDoubleClick={() => {
+                      if (canOpen) onOpenWorktree(wt);
+                    }}
+                    onContextMenu={(e) => openWorktreeContextMenu(e, wt)}
+                    title={`${wt.rawPath}\nBranch: ${branchLabel}${
+                      wt.isLocked
+                        ? `\nLocked${wt.lockReason ? `: ${wt.lockReason}` : ""}`
+                        : ""
+                    }${
+                      wt.isPrunable
+                        ? `\nPrunable${wt.pruneReason ? `: ${wt.pruneReason}` : ""}`
+                        : ""
+                    }${
+                      canOpen ? "\nDouble-click to open in tab · Right-click for actions" : "\nRight-click for actions"
+                    }`}
+                    className={`group flex items-center justify-between px-2 py-1 rounded-md text-[13px] cursor-pointer transition-colors ${
+                      wt.isCurrent
+                        ? "bg-[#e0f2fe]/70 text-[#0b1c30] font-semibold"
+                        : wt.isPrunable
+                        ? "text-[#b45309] hover:bg-[#fef3c7]/60"
+                        : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
+                      {wt.isPrunable ? (
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#d97706]" />
+                      ) : wt.isLocked ? (
+                        <Lock className="w-3.5 h-3.5 shrink-0 text-[#d97706]" />
+                      ) : (
+                        <FolderTree
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            wt.isCurrent
+                              ? "text-[#0284c7]"
+                              : wt.isMain
+                              ? "text-[#0f766e]"
+                              : "text-[#64748b]"
+                          }`}
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className="truncate">{wt.name}</span>
+                          {wt.isMain && (
+                            <span className="px-1 py-[0.5px] rounded bg-[#f1f5f9] border border-[#cbd5e1] text-[9px] font-mono font-semibold text-[#475569] shrink-0">
+                              MAIN
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] font-mono text-[#64748b] truncate">
+                          {branchLabel}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {canOpen && (
+                        <button
+                          type="button"
+                          title={isOpenInTab ? "Switch to tab" : "Open in new tab"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenWorktree(wt);
+                          }}
+                          className="hidden group-hover:inline-flex p-0.5 rounded text-[#64748b] hover:text-[#0284c7] hover:bg-[#e2e8f0] cursor-pointer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {wt.isCurrent ? (
+                        <span className="px-1.5 py-[1px] rounded text-[10px] font-mono font-bold tracking-wide bg-[#0284c7] text-white">
+                          CUR
+                        </span>
+                      ) : isOpenInTab ? (
+                        <span className="px-1.5 py-[1px] rounded text-[10px] font-mono font-semibold bg-[#dcfce7] text-[#15803d]">
+                          OPEN
+                        </span>
+                      ) : wt.isPrunable ? (
+                        <span className="px-1.5 py-[1px] rounded text-[10px] font-mono font-semibold bg-[#fef3c7] text-[#b45309]">
+                          GONE
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
 
       {/* LOCAL BRANCHES */}
       <div>
@@ -863,19 +1114,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <div className="my-1 border-t border-[#f1f5f9]" />
 
-          {!selectedBranch.isCurrent && (
+          {!selectedBranch.isCurrent && selectedBranchInOtherWorktree ? (
             <button
               onClick={() => {
-                const b = selectedBranch;
+                const wt = selectedBranchInOtherWorktree;
                 setCtxMenu(null);
-                onCheckout(b.name, b.isRemote);
+                onOpenWorktree(wt);
               }}
-              className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+              className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0fdfa] hover:text-[#0f766e] cursor-pointer"
             >
-              <CheckCircle2 className="w-3.5 h-3.5 text-[#0284c7]" />
-              <span>Checkout {selectedBranch.isRemote ? "(Track)" : ""}</span>
+              <FolderTree className="w-3.5 h-3.5 text-[#0f766e]" />
+              <span className="truncate">
+                Switch to Worktree ({selectedBranchInOtherWorktree.name})
+              </span>
             </button>
+          ) : (
+            !selectedBranch.isCurrent && (
+              <button
+                onClick={() => {
+                  const b = selectedBranch;
+                  setCtxMenu(null);
+                  onCheckout(b.name, b.isRemote);
+                }}
+                className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#0284c7]" />
+                <span>Checkout {selectedBranch.isRemote ? "(Track)" : ""}</span>
+              </button>
+            )
           )}
+
+          <button
+            onClick={() => {
+              const b = selectedBranch;
+              const inOtherWt = selectedBranchInOtherWorktree;
+              setCtxMenu(null);
+              onRequestCreateWorktree({
+                mode: inOtherWt ? "new-branch" : "existing-branch",
+                branch: b.name,
+                baseRef: b.name,
+              });
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <FolderTree className="w-3.5 h-3.5 text-[#0f766e]" />
+            <span>
+              {selectedBranchInOtherWorktree
+                ? "New Worktree Branch from Here..."
+                : "Open in New Worktree..."}
+            </span>
+          </button>
 
           <button
             onClick={() => {
@@ -1039,6 +1327,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>New Branch from Tag...</span>
           </button>
 
+          <button
+            onClick={() => {
+              const t = selectedTag;
+              setCtxMenu(null);
+              onRequestCreateWorktree({
+                mode: "detach",
+                baseRef: `refs/tags/${t.name}`,
+              });
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <FolderTree className="w-3.5 h-3.5 text-[#0f766e]" />
+            <span>New Worktree from Tag...</span>
+          </button>
+
           <div className="my-1 border-t border-[#f1f5f9]" />
 
           <button
@@ -1174,6 +1477,157 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Trash2 className="w-3.5 h-3.5" />
             <span>Drop Stash...</span>
           </button>
+        </div>
+      )}
+
+      {/* WORKTREE CONTEXT MENU */}
+      {selectedWorktree && ctxMenu && (
+        <div
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-50 w-64 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-[13px] text-[#0b1c30]"
+        >
+          <div className="px-3 py-1.5 border-b border-[#f1f5f9]">
+            <div className="flex items-center justify-between gap-2 text-[11px] font-mono">
+              <span className="text-[#0284c7] font-semibold truncate">
+                {selectedWorktree.name}
+              </span>
+              {selectedWorktree.isMain && (
+                <span className="px-1 rounded bg-[#f1f5f9] text-[#475569] text-[10px] shrink-0">
+                  MAIN
+                </span>
+              )}
+            </div>
+            <div className="text-[10.5px] font-mono text-[#64748b] truncate mt-0.5">
+              {selectedWorktree.rawPath}
+            </div>
+          </div>
+
+          {!selectedWorktree.isCurrent &&
+            !selectedWorktree.isBare &&
+            !selectedWorktree.isPrunable && (
+              <button
+                onClick={() => {
+                  const wt = selectedWorktree;
+                  setCtxMenu(null);
+                  onOpenWorktree(wt);
+                }}
+                className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-[#0284c7]" />
+                <span>
+                  {openTabPathSet.has(selectedWorktree.path.toLowerCase())
+                    ? "Switch to Worktree Tab"
+                    : "Open Worktree in New Tab"}
+                </span>
+              </button>
+            )}
+
+          {!selectedWorktree.isPrunable && (
+            <>
+              <button
+                onClick={() => {
+                  const wt = selectedWorktree;
+                  setCtxMenu(null);
+                  onOpenWorktreeInExplorer(wt);
+                }}
+                className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f8fafc] text-[#334155] cursor-pointer"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-[#475569]" />
+                <span>Open in Explorer</span>
+              </button>
+              <button
+                onClick={() => {
+                  const wt = selectedWorktree;
+                  setCtxMenu(null);
+                  onOpenWorktreeInTerminal(wt);
+                }}
+                className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f8fafc] text-[#334155] cursor-pointer"
+              >
+                <Terminal className="w-3.5 h-3.5 text-[#475569]" />
+                <span>Open in Terminal</span>
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={() => {
+              const wt = selectedWorktree;
+              setCtxMenu(null);
+              navigator.clipboard.writeText(wt.rawPath);
+              onNotify("info", `Copied path: ${wt.rawPath}`);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f8fafc] text-[#475569] cursor-pointer"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Copy Path</span>
+          </button>
+
+          {!selectedWorktree.isMain && (
+            <>
+              <div className="my-1 border-t border-[#f1f5f9]" />
+              {selectedWorktree.isLocked ? (
+                <button
+                  onClick={() => {
+                    const wt = selectedWorktree;
+                    setCtxMenu(null);
+                    onUnlockWorktree(wt);
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#fffbeb] text-[#b45309] cursor-pointer"
+                >
+                  <Unlock className="w-3.5 h-3.5 text-[#d97706]" />
+                  <span>Unlock Worktree</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    const wt = selectedWorktree;
+                    setCtxMenu(null);
+                    onRequestLockWorktree(wt);
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#fffbeb] text-[#b45309] cursor-pointer"
+                >
+                  <Lock className="w-3.5 h-3.5 text-[#d97706]" />
+                  <span>Lock Worktree...</span>
+                </button>
+              )}
+
+              {selectedWorktree.isPrunable && (
+                <button
+                  onClick={() => {
+                    setCtxMenu(null);
+                    onPruneWorktrees();
+                  }}
+                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#fffbeb] text-[#b45309] cursor-pointer"
+                >
+                  <Eraser className="w-3.5 h-3.5 text-[#d97706]" />
+                  <span>Prune Stale Worktrees</span>
+                </button>
+              )}
+
+              <button
+                disabled={selectedWorktree.isCurrent}
+                title={
+                  selectedWorktree.isCurrent
+                    ? "Switch to another tab or worktree before removing the active worktree"
+                    : "Remove worktree from disk"
+                }
+                onClick={() => {
+                  const wt = selectedWorktree;
+                  setCtxMenu(null);
+                  onRequestRemoveWorktree(wt);
+                }}
+                className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-40 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>
+                  {selectedWorktree.isCurrent
+                    ? "Remove (Active Tab)"
+                    : "Remove Worktree..."}
+                </span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </aside>

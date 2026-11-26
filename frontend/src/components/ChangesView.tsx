@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   Minus,
@@ -10,10 +10,16 @@ import {
   AlertTriangle,
   FileText,
   XCircle,
+  History,
+  ChevronDown,
+  ArrowUp,
+  RefreshCw,
+  Search,
 } from "lucide-react";
 import type {
   FileDiff,
   FileStatus,
+  RecentCommitMessage,
   RepoLocation,
   RepoStatus,
 } from "../../bindings/gitpulse/internal/git/models";
@@ -29,11 +35,15 @@ interface ChangesViewProps {
   status: RepoStatus | null;
   leftRatio: number;
   unstagedRatio: number;
+  ignoreWhitespace: boolean;
+  pushBusy?: boolean;
+  onToggleIgnoreWhitespace: (ignore: boolean) => void;
   onChangeRatios: (
     patch: { changesLeftRatio?: number; changesUnstagedRatio?: number },
     persist: boolean
   ) => void;
   onRefresh: () => Promise<void>;
+  onPushAfterCommit: (amended: boolean) => Promise<void>;
   onOpenConflictResolver: () => void;
   onOpenGitConfig: (scope?: "local" | "global") => void;
   onNotify: (type: "success" | "error" | "info", msg: string) => void;
@@ -41,14 +51,19 @@ interface ChangesViewProps {
 }
 
 const PREFIX_CHIPS = ["feat", "fix", "refactor", "docs", "chore"];
+const SUMMARY_RECOMMENDED_LIMIT = 200;
 
 export const ChangesView: React.FC<ChangesViewProps> = ({
   repo,
   status,
   leftRatio,
   unstagedRatio,
+  ignoreWhitespace,
+  pushBusy = false,
+  onToggleIgnoreWhitespace,
   onChangeRatios,
   onRefresh,
+  onPushAfterCommit,
   onOpenConflictResolver,
   onOpenGitConfig,
   onNotify,
@@ -68,17 +83,41 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   );
   const [anchorPath, setAnchorPath] = useState<string | null>(null);
   const [diffMode, setDiffMode] = useState<"split" | "unified">("unified");
-  const [ignoreWs, setIgnoreWs] = useState(false);
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
 
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
   const [amend, setAmend] = useState(false);
-  const [committing, setCommitting] = useState(false);
+  const [commitMode, setCommitMode] = useState<"commit" | "commit-push">(() => {
+    try {
+      return window.localStorage.getItem("mygit.commitMode") === "commit-push"
+        ? "commit-push"
+        : "commit";
+    } catch {
+      return "commit";
+    }
+  });
+  const [commitMenuOpen, setCommitMenuOpen] = useState(false);
+  const [commitAction, setCommitAction] = useState<
+    null | "commit" | "commit-push-committing" | "commit-push-pushing"
+  >(null);
+  const committing = commitAction !== null;
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [abortConfirmOpen, setAbortConfirmOpen] = useState(false);
   const autoFilledMergeKeyRef = useRef("");
+
+  const [recentOpen, setRecentOpen] = useState(false);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [recentMessages, setRecentMessages] = useState<RecentCommitMessage[]>([]);
+  const [recentFilter, setRecentFilter] = useState("");
+  const [recentError, setRecentError] = useState("");
+  const recentLoadedKeyRef = useRef("");
+  const recentBtnRef = useRef<HTMLButtonElement>(null);
+  const recentPopoverRef = useRef<HTMLDivElement>(null);
+  const recentSearchRef = useRef<HTMLInputElement>(null);
+  const summaryInputRef = useRef<HTMLInputElement>(null);
+  const commitMenuRef = useRef<HTMLDivElement>(null);
 
   const leftColRef = useRef<HTMLDivElement>(null);
   const rightColRef = useRef<HTMLDivElement>(null);
@@ -210,7 +249,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
       selected.file.path,
       selected.staged,
       selected.file.status === "?",
-      ignoreWs
+      ignoreWhitespace
     )
       .then((res) => {
         if (!cancelled) setDiff(res);
@@ -242,7 +281,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
     selected?.file.path,
     selected?.staged,
     selected?.file.status,
-    ignoreWs,
+    ignoreWhitespace,
     status,
   ]);
 
@@ -305,8 +344,16 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   };
 
   const handleStageAll = async () => {
+    if (unstaged.length === 0) return;
     try {
-      await GitService.StageAll(repo.path);
+      if (ignoreWhitespace) {
+        await GitService.StageFiles(
+          repo.path,
+          unstaged.map((f) => f.path)
+        );
+      } else {
+        await GitService.StageAll(repo.path);
+      }
       await onRefresh();
     } catch (err) {
       onNotify("error", `Stage all failed: ${err}`);
@@ -314,8 +361,16 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   };
 
   const handleUnstageAll = async () => {
+    if (staged.length === 0) return;
     try {
-      await GitService.UnstageAll(repo.path);
+      if (ignoreWhitespace) {
+        await GitService.UnstageFiles(
+          repo.path,
+          staged.map((f) => f.path)
+        );
+      } else {
+        await GitService.UnstageAll(repo.path);
+      }
       await onRefresh();
     } catch (err) {
       onNotify("error", `Unstage all failed: ${err}`);
@@ -365,15 +420,108 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
   const hasCommitPayload =
     staged.length > 0 || (mergeState !== "" && conflicted.length === 0);
 
-  const handleCommit = async () => {
-    if (!summary.trim() || !hasCommitPayload) return;
-    setCommitting(true);
+  const recentCacheKey = `${repo.path}::${status?.headSha ?? ""}`;
+
+  const loadRecentMessages = async (force = false) => {
+    if (
+      !force &&
+      recentLoadedKeyRef.current === recentCacheKey &&
+      recentMessages.length > 0
+    ) {
+      return;
+    }
+    setRecentLoading(true);
+    setRecentError("");
+    try {
+      const list = await GitService.GetRecentCommitMessages(repo.path, 25);
+      setRecentMessages(list ?? []);
+      recentLoadedKeyRef.current = recentCacheKey;
+    } catch (err) {
+      setRecentError(String(err));
+    } finally {
+      setRecentLoading(false);
+    }
+  };
+
+  const handleToggleRecentMenu = () => {
+    const next = !recentOpen;
+    setRecentOpen(next);
+    if (next) {
+      setRecentFilter("");
+      loadRecentMessages(recentLoadedKeyRef.current !== recentCacheKey);
+      setTimeout(() => recentSearchRef.current?.focus(), 0);
+    }
+  };
+
+  useEffect(() => {
+    if (!recentOpen && !commitMenuOpen) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        recentOpen &&
+        !recentPopoverRef.current?.contains(target) &&
+        !recentBtnRef.current?.contains(target)
+      ) {
+        setRecentOpen(false);
+      }
+      if (commitMenuOpen && !commitMenuRef.current?.contains(target)) {
+        setCommitMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setRecentOpen(false);
+        setCommitMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [recentOpen, commitMenuOpen]);
+
+  const selectCommitMode = (mode: "commit" | "commit-push") => {
+    setCommitMode(mode);
+    setCommitMenuOpen(false);
+    try {
+      window.localStorage.setItem("mygit.commitMode", mode);
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const filteredRecentMessages = useMemo(() => {
+    const q = recentFilter.trim().toLowerCase();
+    if (!q) return recentMessages;
+    return recentMessages.filter(
+      (item) =>
+        item.subject.toLowerCase().includes(q) ||
+        item.body.toLowerCase().includes(q) ||
+        item.shortHash.toLowerCase().includes(q) ||
+        item.author.toLowerCase().includes(q)
+    );
+  }, [recentMessages, recentFilter]);
+
+  const handleSelectRecentMessage = (item: RecentCommitMessage) => {
+    setSummary(item.subject);
+    setDescription(item.body || "");
+    setRecentOpen(false);
+    setTimeout(() => summaryInputRef.current?.focus(), 0);
+  };
+
+  const handleCommit = async (withPush = false) => {
+    if (!summary.trim() || !hasCommitPayload || committing) return;
+    if (withPush && (pushBusy || status?.isDetached)) return;
+    const wasAmend = amend;
+    setCommitAction(withPush ? "commit-push-committing" : "commit");
     try {
       const res = await GitService.Commit(
         repo.path,
         summary,
         description,
-        amend
+        wasAmend
       );
       if (!res.success) {
         if (res.errorCode === "AUTHOR_IDENTITY_UNKNOWN") {
@@ -382,18 +530,25 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
         } else {
           onNotify("error", res.message || "Commit failed");
         }
+        return;
+      }
+      setSummary("");
+      setDescription("");
+      setAmend(false);
+      setRecentOpen(false);
+      autoFilledMergeKeyRef.current = "";
+      recentLoadedKeyRef.current = "";
+      await onRefresh();
+      if (withPush) {
+        setCommitAction("commit-push-pushing");
+        await onPushAfterCommit(wasAmend);
       } else {
-        onNotify("success", amend ? "Amended commit" : "Committed changes");
-        setSummary("");
-        setDescription("");
-        setAmend(false);
-        autoFilledMergeKeyRef.current = "";
-        await onRefresh();
+        onNotify("success", wasAmend ? "Amended commit" : "Committed changes");
       }
     } catch (err) {
       onNotify("error", String(err));
     } finally {
-      setCommitting(false);
+      setCommitAction(null);
     }
   };
 
@@ -412,8 +567,15 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
     }
   };
 
-  const summaryTooLong = summary.length > 50;
+  const summaryTooLong = summary.length > SUMMARY_RECOMMENDED_LIMIT;
+  const effectiveCommitMode: "commit" | "commit-push" = status?.isDetached
+    ? "commit"
+    : commitMode;
   const commitDisabled = committing || !hasCommitPayload || !summary.trim();
+  const commitPushDisabled =
+    commitDisabled || pushBusy || Boolean(status?.isDetached);
+  const activeCommitDisabled =
+    effectiveCommitMode === "commit-push" ? commitPushDisabled : commitDisabled;
 
   const applyRepoConfigKey = async (key: string, value: string) => {
     const res = await GitService.SetRepoConfigKey(repo.path, key, value);
@@ -523,8 +685,8 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
           <label className="flex items-center gap-1.5 text-[11px] text-[#475569] hover:text-[#0b1c30] cursor-pointer select-none">
             <input
               type="checkbox"
-              checked={ignoreWs}
-              onChange={(e) => setIgnoreWs(e.target.checked)}
+              checked={ignoreWhitespace}
+              onChange={(e) => onToggleIgnoreWhitespace(e.target.checked)}
               className="w-3.5 h-3.5 rounded accent-[#0284c7] cursor-pointer"
             />
             Ignore Whitespace
@@ -604,6 +766,10 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                     <div
                       key={`u:${file.path}`}
                       onClick={(e) => handleRowSelect(e, file, false)}
+                      onDoubleClick={(e) => {
+                        if (!busyPath) handleStage(e, file);
+                      }}
+                      title={`${file.path} · Double-click to stage`}
                       className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors relative select-none ${
                         isMulti
                           ? "bg-[#e0f2fe] text-[#0b1c30]"
@@ -650,6 +816,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                               e.stopPropagation();
                               GitService.OpenInEditor(repo.path, file.path);
                             }}
+                            onDoubleClick={(e) => e.stopPropagation()}
                             className="p-0.5 rounded hover:bg-[#e2e8f0] text-[#dc2626] cursor-pointer"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
@@ -672,6 +839,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                               onConfirmDiscard([file]);
                             }
                           }}
+                          onDoubleClick={(e) => e.stopPropagation()}
                           className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#fee2e2] text-[#dc2626] transition-opacity cursor-pointer"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
@@ -680,6 +848,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                           title="Stage file"
                           disabled={busyPath === file.path}
                           onClick={(e) => handleStage(e, file)}
+                          onDoubleClick={(e) => e.stopPropagation()}
                           className="p-0.5 rounded hover:bg-[#dcfce7] text-[#16a34a] cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
@@ -770,6 +939,10 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                     <div
                       key={`s:${file.path}`}
                       onClick={(e) => handleRowSelect(e, file, true)}
+                      onDoubleClick={(e) => {
+                        if (!busyPath) handleUnstage(e, file);
+                      }}
+                      title={`${file.origPath ? `${file.origPath} → ${file.path}` : file.path} · Double-click to unstage`}
                       className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors relative select-none ${
                         isMulti
                           ? "bg-[#e0f2fe] text-[#0b1c30]"
@@ -809,6 +982,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                           title="Unstage file"
                           disabled={busyPath === file.path}
                           onClick={(e) => handleUnstage(e, file)}
+                          onDoubleClick={(e) => e.stopPropagation()}
                           className="p-0.5 rounded hover:bg-[#fee2e2] text-[#dc2626] cursor-pointer"
                         >
                           <Minus className="w-3.5 h-3.5" />
@@ -823,9 +997,115 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
           </div>
 
           {/* Commit Panel */}
-          <div className="p-2.5 bg-[#f8fafc] border-t border-[#e2e8f0] flex flex-col gap-2 shrink-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1">
+          <div className="p-2.5 bg-[#f8fafc] border-t border-[#e2e8f0] flex flex-col gap-2 shrink-0 relative">
+            {recentOpen && (
+              <div
+                ref={recentPopoverRef}
+                className="absolute left-2.5 right-2.5 bottom-full mb-1.5 z-30 bg-white border border-[#cbd5e1] rounded-lg shadow-xl flex flex-col overflow-hidden"
+                style={{ maxHeight: "min(280px, 45vh)" }}
+              >
+                <div className="px-2.5 py-1.5 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#0b1c30]">
+                    <History className="w-3.5 h-3.5 text-[#0284c7]" />
+                    <span>最近 Commit 信息</span>
+                    {!recentLoading && recentMessages.length > 0 && (
+                      <span className="font-mono text-[10px] font-normal text-[#64748b]">
+                        ({filteredRecentMessages.length})
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    title="刷新最近提交"
+                    onClick={() => loadRecentMessages(true)}
+                    disabled={recentLoading}
+                    className="p-0.5 rounded hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0b1c30] disabled:opacity-40 cursor-pointer"
+                  >
+                    <RefreshCw
+                      className={`w-3 h-3 ${recentLoading ? "animate-spin" : ""}`}
+                    />
+                  </button>
+                </div>
+
+                {recentMessages.length > 4 && (
+                  <div className="px-2 py-1.5 border-b border-[#f1f5f9] shrink-0">
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#f8fafc] border border-[#e2e8f0] focus-within:border-[#0284c7]">
+                      <Search className="w-3 h-3 text-[#94a3b8] shrink-0" />
+                      <input
+                        ref={recentSearchRef}
+                        type="text"
+                        value={recentFilter}
+                        onChange={(e) => setRecentFilter(e.target.value)}
+                        placeholder="搜索历史提交信息..."
+                        className="w-full bg-transparent text-[11px] text-[#0b1c30] placeholder:text-[#94a3b8] outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex-1 overflow-y-auto p-1 flex flex-col gap-0.5">
+                  {recentLoading && recentMessages.length === 0 ? (
+                    <div className="py-6 text-center text-[11px] text-[#64748b]">
+                      加载中...
+                    </div>
+                  ) : recentError ? (
+                    <div className="p-2.5 text-[11px] text-[#dc2626] break-words">
+                      加载失败: {recentError}
+                    </div>
+                  ) : filteredRecentMessages.length === 0 ? (
+                    <div className="py-6 text-center text-[11px] text-[#94a3b8]">
+                      {recentMessages.length === 0
+                        ? "暂无历史提交记录"
+                        : "未找到匹配的提交信息"}
+                    </div>
+                  ) : (
+                    filteredRecentMessages.map((item) => {
+                      const isCurrent =
+                        summary === item.subject &&
+                        description === (item.body || "");
+                      return (
+                        <button
+                          key={item.hash}
+                          type="button"
+                          onClick={() => handleSelectRecentMessage(item)}
+                          className={`w-full text-left px-2 py-1.5 rounded transition-colors cursor-pointer flex flex-col gap-0.5 ${
+                            isCurrent
+                              ? "bg-[#e0f2fe] text-[#0b1c30]"
+                              : "hover:bg-[#f1f5f9] text-[#0b1c30]"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-1.5">
+                            <span className="text-[11px] font-medium leading-snug line-clamp-2 break-words">
+                              {item.subject}
+                            </span>
+                            {isCurrent && (
+                              <Check className="w-3 h-3 text-[#0284c7] shrink-0 mt-0.5" />
+                            )}
+                          </div>
+                          {item.body && (
+                            <div className="text-[10px] font-mono text-[#64748b] truncate">
+                              {item.body}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1.5 text-[10px] text-[#64748b]">
+                            <span className="font-mono px-1 rounded bg-[#f1f5f9] text-[#475569]">
+                              {item.shortHash}
+                            </span>
+                            <span className="truncate">{item.author}</span>
+                            <span className="ml-auto shrink-0">
+                              {item.relativeTime}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1 flex-wrap min-w-0">
                 {PREFIX_CHIPS.map((p) => (
                   <button
                     key={p}
@@ -841,28 +1121,55 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                   </button>
                 ))}
               </div>
-              <span
-                className={`font-mono text-[10px] ${
-                  summaryTooLong
-                    ? "text-[#d97706] font-semibold"
-                    : "text-[#94a3b8]"
-                }`}
-              >
-                {summary.length}/50
-              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  ref={recentBtnRef}
+                  type="button"
+                  onClick={handleToggleRecentMenu}
+                  title="选择最近的 Commit 信息"
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium cursor-pointer transition-colors ${
+                    recentOpen
+                      ? "bg-[#e0f2fe] border-[#0284c7] text-[#0284c7]"
+                      : "bg-white border-[#e2e8f0] hover:border-[#0284c7] text-[#475569] hover:text-[#0284c7]"
+                  }`}
+                >
+                  <History className="w-3 h-3" />
+                  <span>最近</span>
+                  <ChevronDown
+                    className={`w-2.5 h-2.5 transition-transform ${
+                      recentOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+                <span
+                  className={`font-mono text-[10px] ${
+                    summaryTooLong
+                      ? "text-[#d97706] font-semibold"
+                      : "text-[#94a3b8]"
+                  }`}
+                >
+                  {summary.length}/{SUMMARY_RECOMMENDED_LIMIT}
+                </span>
+              </div>
             </div>
 
             <div>
               <input
+                ref={summaryInputRef}
                 type="text"
                 value={summary}
                 onChange={(e) => setSummary(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.ctrlKey && e.key === "Enter" && !commitDisabled) {
-                    handleCommit();
+                  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                      if (!commitPushDisabled) handleCommit(true);
+                    } else if (!activeCommitDisabled) {
+                      handleCommit(effectiveCommitMode === "commit-push");
+                    }
                   }
                 }}
-                placeholder="Commit summary (required, <= 50 chars recommended)"
+                placeholder={`Commit summary (required, <= ${SUMMARY_RECOMMENDED_LIMIT} chars recommended)`}
                 className={`w-full px-2.5 py-1.5 rounded bg-white text-[12px] font-medium text-[#0b1c30] placeholder:text-[#94a3b8] outline-none border transition-all ${
                   summaryTooLong
                     ? "border-[#d97706] focus:ring-2 focus:ring-[#d97706]/20"
@@ -871,7 +1178,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
               />
               {summaryTooLong && (
                 <div className="mt-1 text-[10px] text-[#d97706]">
-                  Summary exceeds 50 characters ({summary.length} chars). Consider moving details to description.
+                  Summary exceeds {SUMMARY_RECOMMENDED_LIMIT} characters ({summary.length} chars). Consider moving details to description.
                 </div>
               )}
             </div>
@@ -881,39 +1188,151 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => {
-                if (e.ctrlKey && e.key === "Enter" && !commitDisabled) {
-                  handleCommit();
+                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    if (!commitPushDisabled) handleCommit(true);
+                  } else if (!activeCommitDisabled) {
+                    handleCommit(effectiveCommitMode === "commit-push");
+                  }
                 }
               }}
               placeholder="Extended description (optional)..."
               className="w-full px-2.5 py-1.5 rounded bg-white border border-[#cbd5e1] focus:border-[#0284c7] focus:ring-2 focus:ring-[#0284c7]/15 text-[11px] font-mono text-[#0b1c30] placeholder:text-[#94a3b8] outline-none resize-none"
             />
 
-            <div className="flex items-center justify-between pt-0.5">
-              <label className="flex items-center gap-1.5 text-[11px] text-[#475569] cursor-pointer select-none">
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <label className="flex items-center gap-1.5 text-[11px] text-[#475569] cursor-pointer select-none min-w-0">
                 <input
                   type="checkbox"
                   checked={amend}
                   onChange={(e) => handleToggleAmend(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded accent-[#0284c7] cursor-pointer"
+                  className="w-3.5 h-3.5 rounded accent-[#0284c7] cursor-pointer shrink-0"
                 />
-                Amend last commit
+                <span className="truncate">Amend last commit</span>
               </label>
 
-              <button
-                onClick={handleCommit}
-                disabled={commitDisabled}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#0284c7] hover:bg-[#0369a1] active:bg-[#075985] text-white text-[12px] font-medium disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              >
-                <Check className="w-3.5 h-3.5" />
-                {committing
-                  ? "Committing..."
-                  : amend
-                  ? "Amend Commit"
-                  : mergeState === "merge"
-                  ? "Commit Merge"
-                  : `Commit to ${status?.branch || "HEAD"}`}
-              </button>
+              <div ref={commitMenuRef} className="relative inline-flex items-stretch min-w-0 max-w-[68%]">
+                <button
+                  type="button"
+                  onClick={() => handleCommit(effectiveCommitMode === "commit-push")}
+                  disabled={activeCommitDisabled}
+                  title={
+                    effectiveCommitMode === "commit-push"
+                      ? `Commit to ${status?.branch || "HEAD"} & Push (Ctrl+Enter)`
+                      : `Commit to ${status?.branch || "HEAD"} (Ctrl+Enter)`
+                  }
+                  className="min-w-0 flex items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-l bg-[#0284c7] hover:bg-[#0369a1] active:bg-[#075985] text-white text-[12px] font-medium disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                >
+                  {committing ? (
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" />
+                  ) : effectiveCommitMode === "commit-push" ? (
+                    <ArrowUp className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {commitAction === "commit" ||
+                    commitAction === "commit-push-committing"
+                      ? "Committing..."
+                      : commitAction === "commit-push-pushing"
+                      ? "Pushing..."
+                      : effectiveCommitMode === "commit-push"
+                      ? amend
+                        ? "Amend & Push"
+                        : mergeState === "merge"
+                        ? "Merge & Push"
+                        : "Commit & Push"
+                      : amend
+                      ? "Amend Commit"
+                      : mergeState === "merge"
+                      ? "Commit Merge"
+                      : `Commit to ${status?.branch || "HEAD"}`}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  aria-label="选择提交方式"
+                  disabled={committing}
+                  onClick={() => setCommitMenuOpen((v) => !v)}
+                  title="切换 Commit / Commit & Push"
+                  className="flex items-center justify-center px-1.5 py-1.5 rounded-r bg-[#0284c7] hover:bg-[#0369a1] active:bg-[#075985] border-l border-white/25 text-white disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                >
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      commitMenuOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {commitMenuOpen && (
+                  <div className="absolute right-0 bottom-full mb-1.5 z-30 w-56 bg-white border border-[#cbd5e1] rounded-lg shadow-xl py-1 text-left">
+                    <button
+                      type="button"
+                      onClick={() => selectCommitMode("commit")}
+                      className={`w-full px-2.5 py-1.5 flex items-start justify-between gap-2 text-left transition-colors cursor-pointer ${
+                        effectiveCommitMode === "commit"
+                          ? "bg-[#f0f9ff] text-[#0284c7]"
+                          : "hover:bg-[#f8fafc] text-[#0b1c30]"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Check className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#0284c7]" />
+                        <div className="min-w-0">
+                          <div className="text-[12px] font-medium leading-tight">
+                            {amend
+                              ? "Amend Commit"
+                              : mergeState === "merge"
+                              ? "Commit Merge"
+                              : "Commit"}
+                          </div>
+                          <div className="text-[10px] text-[#64748b] mt-0.5 truncate">
+                            仅提交到本地 ({status?.branch || "HEAD"})
+                          </div>
+                        </div>
+                      </div>
+                      {effectiveCommitMode === "commit" && (
+                        <Check className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#0284c7]" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={Boolean(status?.isDetached)}
+                      onClick={() => selectCommitMode("commit-push")}
+                      className={`w-full px-2.5 py-1.5 flex items-start justify-between gap-2 text-left transition-colors ${
+                        status?.isDetached
+                          ? "opacity-45 cursor-not-allowed text-[#64748b]"
+                          : effectiveCommitMode === "commit-push"
+                          ? "bg-[#f0f9ff] text-[#0284c7] cursor-pointer"
+                          : "hover:bg-[#f8fafc] text-[#0b1c30] cursor-pointer"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <ArrowUp className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#0284c7]" />
+                        <div className="min-w-0">
+                          <div className="text-[12px] font-medium leading-tight">
+                            {amend
+                              ? "Amend & Push"
+                              : mergeState === "merge"
+                              ? "Merge & Push"
+                              : "Commit & Push"}
+                          </div>
+                          <div className="text-[10px] text-[#64748b] mt-0.5 truncate">
+                            {status?.isDetached
+                              ? "Detached HEAD 无法推送"
+                              : "提交后自动推送到远程仓库"}
+                          </div>
+                        </div>
+                      </div>
+                      {effectiveCommitMode === "commit-push" && (
+                        <Check className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#0284c7]" />
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

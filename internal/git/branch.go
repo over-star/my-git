@@ -183,6 +183,9 @@ func classifyCheckoutResult(targetLabel, stdout, stderr string, err error) OpRes
 			strings.Contains(low, "commit your changes or stash them") ||
 			strings.Contains(low, "uncommitted changes") {
 			code = "DIRTY_WORKTREE"
+		} else if strings.Contains(low, "is already used by worktree") ||
+			strings.Contains(low, "already checked out at") {
+			code = "WORKTREE_IN_USE"
 		}
 		return OpResult{
 			Success:   false,

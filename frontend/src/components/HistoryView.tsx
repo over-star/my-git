@@ -14,6 +14,7 @@ import {
   RotateCcw,
   History,
   Folder,
+  FolderTree,
   FileCode2,
   FileArchive,
 } from "lucide-react";
@@ -43,6 +44,7 @@ interface HistoryViewProps {
   focusCommitSignal?: { sha: string; nonce: number } | null;
   refreshKey: number;
   externalSearch?: string;
+  defaultIgnoreWhitespace?: boolean;
   bottomRatio: number;
   detailLeftRatio: number;
   onChangeRatios: (
@@ -51,6 +53,7 @@ interface HistoryViewProps {
   ) => void;
   onCreateBranchFromCommit: (sha: string) => void;
   onCreateTagFromCommit: (sha: string) => void;
+  onCreateWorktreeFromCommit: (sha: string) => void;
   onRequestRevertCommit: (commit: CommitItem) => void;
   onRequestResetCommit: (commit: CommitItem) => void;
   onNotify: (type: "success" | "error" | "info", msg: string) => void;
@@ -122,11 +125,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   focusCommitSignal,
   refreshKey,
   externalSearch,
+  defaultIgnoreWhitespace = false,
   bottomRatio,
   detailLeftRatio,
   onChangeRatios,
   onCreateBranchFromCommit,
   onCreateTagFromCommit,
+  onCreateWorktreeFromCommit,
   onRequestRevertCommit,
   onRequestResetCommit,
   onNotify,
@@ -146,7 +151,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [fileDiff, setFileDiff] = useState<FileDiff | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
-  const [ignoreWs, setIgnoreWs] = useState(false);
+  const [ignoreWs, setIgnoreWs] = useState(defaultIgnoreWhitespace);
+
+  useEffect(() => {
+    setIgnoreWs(defaultIgnoreWhitespace);
+  }, [defaultIgnoreWhitespace]);
 
   // Commit inspector tab ("commit" | "changes" | "all") & right-pane scope ("changed" | "all")
   const [inspectTab, setInspectTab] = useState<"commit" | "changes" | "all">(
@@ -1044,6 +1053,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                         <TagIcon className="w-3.5 h-3.5" />
                         Tag
                       </button>
+                      <button
+                        onClick={() => onCreateWorktreeFromCommit(detail.hash)}
+                        className="flex items-center gap-1 px-2 py-1 rounded bg-[#f8fafc] border border-[#e2e8f0] hover:border-[#0f766e] text-[12px] font-medium text-[#0f766e] cursor-pointer"
+                      >
+                        <FolderTree className="w-3.5 h-3.5" />
+                        Worktree
+                      </button>
                     </div>
                   </div>
 
@@ -1390,6 +1406,18 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           >
             <TagIcon className="w-3.5 h-3.5 text-[#16a34a]" />
             <span>New Tag Here...</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const sha = ctxMenu.commit.hash;
+              setCtxMenu(null);
+              onCreateWorktreeFromCommit(sha);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0fdfa] hover:text-[#0f766e] cursor-pointer"
+          >
+            <FolderTree className="w-3.5 h-3.5 text-[#0f766e]" />
+            <span>New Worktree Here...</span>
           </button>
 
           <div className="my-1 border-t border-[#f1f5f9]" />

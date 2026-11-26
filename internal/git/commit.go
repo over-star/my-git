@@ -65,6 +65,79 @@ func GetLastCommitMessage(ctx context.Context, loc RepoLocation) (string, string
 	return subject, body, nil
 }
 
+// GetRecentCommitMessages returns recent unique commit messages (subject + body) from HEAD (or all refs if HEAD is unborn).
+func GetRecentCommitMessages(ctx context.Context, loc RepoLocation, limit int) ([]RecentCommitMessage, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	fetchCount := limit * 2
+	if fetchCount < 40 {
+		fetchCount = 40
+	}
+	format := "%x1e%H%x1f%an%x1f%ct%x1f%s%x1f%b"
+	stdout, stderr, err := RunGit(ctx, loc, "log", fmt.Sprintf("-n%d", fetchCount), "--format="+format, "HEAD", "--")
+	if err != nil && isMissingRevisionErr(stderr) {
+		stdout, stderr, err = RunGit(ctx, loc, "log", fmt.Sprintf("-n%d", fetchCount), "--exclude=refs/stash", "--all", "--format="+format, "--")
+	}
+	if err != nil {
+		msg := strings.TrimSpace(stderr)
+		if strings.Contains(msg, "does not have any commits yet") || strings.Contains(msg, "your current branch") {
+			return []RecentCommitMessage{}, nil
+		}
+		return nil, fmt.Errorf("git log failed: %s (%w)", msg, err)
+	}
+
+	now := time.Now()
+	seen := make(map[string]struct{})
+	items := make([]RecentCommitMessage, 0, limit)
+	for _, rec := range strings.Split(stdout, "\x1e") {
+		rec = strings.TrimSpace(rec)
+		if rec == "" {
+			continue
+		}
+		fields := strings.SplitN(rec, "\x1f", 5)
+		if len(fields) < 4 {
+			continue
+		}
+		hash := strings.TrimSpace(fields[0])
+		author := strings.TrimSpace(fields[1])
+		ts, _ := strconv.ParseInt(strings.TrimSpace(fields[2]), 10, 64)
+		subject := strings.TrimSpace(fields[3])
+		body := ""
+		if len(fields) > 4 {
+			body = strings.TrimSpace(fields[4])
+		}
+		if subject == "" {
+			continue
+		}
+		dedupeKey := subject + "\x00" + body
+		if _, exists := seen[dedupeKey]; exists {
+			continue
+		}
+		seen[dedupeKey] = struct{}{}
+
+		shortHash := hash
+		if len(shortHash) > 7 {
+			shortHash = shortHash[:7]
+		}
+		items = append(items, RecentCommitMessage{
+			Hash:         hash,
+			ShortHash:    shortHash,
+			Subject:      subject,
+			Body:         body,
+			Author:       author,
+			RelativeTime: formatRelativeTime(now, time.Unix(ts, 0)),
+		})
+		if len(items) >= limit {
+			break
+		}
+	}
+	return items, nil
+}
+
 func parsePreparedCommitMsg(raw string) (string, string) {
 	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
 	var kept []string
