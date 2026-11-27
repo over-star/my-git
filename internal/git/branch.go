@@ -327,9 +327,9 @@ func DeleteRemoteBranch(ctx context.Context, loc RepoLocation, remoteBranch stri
 	return OpResult{Success: true, Message: "Deleted remote branch " + remoteBranch, Output: combined}, nil
 }
 
-// ListTags returns repository tags sorted newest first.
+// ListTags returns repository tags sorted newest first, with peeled target commit short hashes.
 func ListTags(ctx context.Context, loc RepoLocation) ([]TagInfo, error) {
-	out, stderr, err := RunGit(ctx, loc, "tag", "-l", "--sort=-creatordate", "--format=%(refname:short)%1f%(objectname:short)%1f%(contents:subject)")
+	out, stderr, err := RunGit(ctx, loc, "tag", "-l", "--sort=-creatordate", "--format=%(refname:short)%1f%(if)%(*objectname:short)%(then)%(*objectname:short)%(else)%(objectname:short)%(end)%1f%(contents:subject)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tags: %s (%w)", strings.TrimSpace(stderr), err)
 	}

@@ -275,7 +275,7 @@ func (s *GitService) GetMergeCommitMessage(repoPath string) (LastCommitMessage, 
 }
 
 func (s *GitService) GetCommitHistory(repoPath, branch, search string, skip, limit int) (git.CommitPage, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.longCtx()
 	defer cancel()
 	return git.GetCommitHistory(ctx, git.ParseRepoLocation(repoPath), branch, search, skip, limit)
 }

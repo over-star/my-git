@@ -90,12 +90,13 @@ func main() {
 	}
 
 	mainWin = app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:     "mygit",
-		Width:     1380,
-		Height:    860,
-		MinWidth:  1024,
-		MinHeight: 640,
-		Frameless: true,
+		Title:                      "mygit",
+		Width:                      1380,
+		Height:                     860,
+		MinWidth:                   1024,
+		MinHeight:                  640,
+		Frameless:                  true,
+		DefaultContextMenuDisabled: true,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 36,
 			Backdrop:                application.MacBackdropTranslucent,

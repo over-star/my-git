@@ -207,10 +207,13 @@ func buildCommitLogArgs(format, ref, search string, skip, limit int) []string {
 		"--date-order",
 		fmt.Sprintf("--format=%s", format),
 	}
-	if search != "" {
-		args = append(args, "-n2000")
-	} else {
-		args = append(args, fmt.Sprintf("--skip=%d", skip), fmt.Sprintf("-n%d", limit+1))
+	if search == "" {
+		if skip > 0 {
+			args = append(args, fmt.Sprintf("--skip=%d", skip))
+		}
+		if limit > 0 {
+			args = append(args, fmt.Sprintf("-n%d", limit+1))
+		}
 	}
 	if ref == "" || ref == "__ALL__" {
 		args = append(args, "--exclude=refs/stash", "--all", "--")
@@ -220,11 +223,9 @@ func buildCommitLogArgs(format, ref, search string, skip, limit int) []string {
 	return args
 }
 
-// GetCommitHistory returns a paginated list of commits with parent hashes and ref badges.
+// GetCommitHistory returns commits with parent hashes and ref badges.
+// When limit <= 0, all matching commits are returned without pagination cap.
 func GetCommitHistory(ctx context.Context, loc RepoLocation, branch string, search string, skip int, limit int) (CommitPage, error) {
-	if limit <= 0 {
-		limit = 100
-	}
 	if skip < 0 {
 		skip = 0
 	}
@@ -318,10 +319,14 @@ func GetCommitHistory(ctx context.Context, loc RepoLocation, branch string, sear
 
 	if q != "" {
 		if skip < len(items) {
-			end := skip + limit
-			if end < len(items) {
-				page.HasMore = true
-				page.Commits = items[skip:end]
+			if limit > 0 {
+				end := skip + limit
+				if end < len(items) {
+					page.HasMore = true
+					page.Commits = items[skip:end]
+				} else {
+					page.Commits = items[skip:]
+				}
 			} else {
 				page.Commits = items[skip:]
 			}
@@ -329,7 +334,7 @@ func GetCommitHistory(ctx context.Context, loc RepoLocation, branch string, sear
 		return page, nil
 	}
 
-	if len(items) > limit {
+	if limit > 0 && len(items) > limit {
 		page.HasMore = true
 		page.Commits = items[:limit]
 	} else {

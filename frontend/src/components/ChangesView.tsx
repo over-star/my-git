@@ -772,12 +772,12 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                       title={`${file.path} · Double-click to stage`}
                       className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors relative select-none ${
                         isMulti
-                          ? "bg-[#e0f2fe] text-[#0b1c30]"
-                          : "hover:bg-[#f8fafc] text-[#334155]"
+                          ? "bg-[#bae6fd]/75 text-[#0b1c30] font-medium"
+                          : "hover:bg-[#f1f5f9] text-[#334155]"
                       }`}
                     >
                       {(isPrimary || isMulti) && (
-                        <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-[#0284c7] rounded-r" />
+                        <div className="absolute left-0 top-1 bottom-1 w-[3px] bg-[#0284c7] rounded-r" />
                       )}
                       <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
                         <StatusBadge
@@ -945,12 +945,12 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                       title={`${file.origPath ? `${file.origPath} → ${file.path}` : file.path} · Double-click to unstage`}
                       className={`group flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors relative select-none ${
                         isMulti
-                          ? "bg-[#e0f2fe] text-[#0b1c30]"
-                          : "hover:bg-[#f8fafc] text-[#334155]"
+                          ? "bg-[#bae6fd]/75 text-[#0b1c30] font-medium"
+                          : "hover:bg-[#f1f5f9] text-[#334155]"
                       }`}
                     >
                       {(isPrimary || isMulti) && (
-                        <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-[#0284c7] rounded-r" />
+                        <div className="absolute left-0 top-1 bottom-1 w-[3px] bg-[#0284c7] rounded-r" />
                       )}
                       <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
                         <StatusBadge status={file.status} />
@@ -1070,7 +1070,7 @@ export const ChangesView: React.FC<ChangesViewProps> = ({
                           onClick={() => handleSelectRecentMessage(item)}
                           className={`w-full text-left px-2 py-1.5 rounded transition-colors cursor-pointer flex flex-col gap-0.5 ${
                             isCurrent
-                              ? "bg-[#e0f2fe] text-[#0b1c30]"
+                              ? "bg-[#bae6fd]/75 text-[#0b1c30]"
                               : "hover:bg-[#f1f5f9] text-[#0b1c30]"
                           }`}
                         >

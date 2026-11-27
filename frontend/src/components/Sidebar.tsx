@@ -223,6 +223,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (activeHistoryBranch.startsWith("refs/tags/")) {
           return `tag:${activeHistoryBranch.slice("refs/tags/".length)}`;
         }
+        if (activeHistoryBranch.startsWith("stash@{")) {
+          return `stash:${activeHistoryBranch}`;
+        }
         const match = branches.find((b) => b.fullName === activeHistoryBranch);
         if (match) {
           return `${match.isRemote ? "remote" : "local"}:${match.fullName}`;
@@ -277,7 +280,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const openStashContextMenu = (e: React.MouseEvent, stash: StashItem) => {
     e.preventDefault();
     e.stopPropagation();
-    const { x, y } = clampMenuPos(e, 180);
+    setSelectedRef(`stash:${stash.ref}`);
+    const { x, y } = clampMenuPos(e, 210);
     setCtxMenu({ kind: "stash", x, y, stash });
   };
 
@@ -1021,7 +1025,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       key={t.name}
                       onClick={() => {
                         setSelectedRef(`tag:${t.name}`);
-                        onInspectBranch(tagRef);
+                        onInspectBranch(tagRef, t.hash);
                       }}
                       onDoubleClick={() => onCheckoutTag(t.name)}
                       onContextMenu={(e) => openTagContextMenu(e, t)}
@@ -1103,19 +1107,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 No stashes
               </div>
             ) : (
-              stashes.map((s) => (
-                <div
-                  key={s.ref}
-                  onContextMenu={(e) => openStashContextMenu(e, s)}
-                  title={`${s.ref} (${s.relativeTime}): ${s.message}\nRight-click for actions`}
-                  className="flex items-center justify-between px-2 py-1 rounded-md text-[13px] text-[#334155] hover:bg-[#f1f5f9] cursor-pointer transition-colors"
-                >
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
-                    <Archive className="w-3.5 h-3.5 shrink-0 text-[#d97706]" />
-                    <span className="truncate">{s.message}</span>
+              stashes.map((s) => {
+                const isSelected =
+                  selectedRef === `stash:${s.ref}` ||
+                  activeHistoryBranch === s.ref;
+                return (
+                  <div
+                    key={s.ref}
+                    onClick={() => {
+                      setSelectedRef(`stash:${s.ref}`);
+                      onInspectBranch(s.ref);
+                    }}
+                    onContextMenu={(e) => openStashContextMenu(e, s)}
+                    title={`${s.ref} (${s.relativeTime}): ${s.message}\nClick to view in Commit Graph · Right-click for actions`}
+                    className={`flex items-center justify-between px-2 py-1 rounded-md text-[13px] cursor-pointer transition-colors ${
+                      isSelected
+                        ? "bg-[#0284c7] text-white font-semibold shadow-xs"
+                        : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0b1c30]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
+                      <Archive
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          isSelected ? "text-white/90" : "text-[#d97706]"
+                        }`}
+                      />
+                      <span className="truncate">{s.message}</span>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -1336,7 +1357,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               const t = selectedTag;
               setCtxMenu(null);
               setSelectedRef(`tag:${t.name}`);
-              onInspectBranch(`refs/tags/${t.name}`);
+              onInspectBranch(`refs/tags/${t.name}`, t.hash);
             }}
             className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
           >
@@ -1480,6 +1501,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {selectedStash.message}
             </div>
           </div>
+
+          <button
+            onClick={() => {
+              const s = selectedStash;
+              setCtxMenu(null);
+              setSelectedRef(`stash:${s.ref}`);
+              onInspectBranch(s.ref);
+            }}
+            className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[#f0f9ff] hover:text-[#0284c7] cursor-pointer"
+          >
+            <History className="w-3.5 h-3.5 text-[#0284c7]" />
+            <span>View in Commit Graph</span>
+          </button>
 
           <button
             onClick={() => {

@@ -26,6 +26,7 @@ import type {
   CommitTreeEntry,
   FileDiff,
   RepoLocation,
+  StashItem,
   TagInfo,
 } from "../../bindings/gitpulse/internal/git/models";
 import { GitService } from "../../bindings/gitpulse";
@@ -39,6 +40,7 @@ interface HistoryViewProps {
   repo: RepoLocation;
   branches: BranchInfo[];
   tags?: TagInfo[];
+  stashes?: StashItem[];
   selectedBranch: string;
   onSelectBranch: (branch: string) => void;
   focusCommitSignal?: { sha: string; nonce: number } | null;
@@ -112,14 +114,14 @@ function buildFileTree<T extends { path: string }>(items: T[]): TreeNode<T>[] {
   return root.children;
 }
 
-const PAGE_SIZE = 100;
-const ROW_HEIGHT = 32;
-const LANE_SPACING = 14;
+const ROW_HEIGHT = 26;
+const LANE_SPACING = 10;
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
   repo,
   branches,
   tags = [],
+  stashes = [],
   selectedBranch,
   onSelectBranch,
   focusCommitSignal,
@@ -140,9 +142,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const [commits, setCommits] = useState<CommitItem[]>([]);
-  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
 
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
   const [detail, setDetail] = useState<CommitDetail | null>(null);
@@ -185,7 +185,6 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const bottomPaneRef = useRef<HTMLDivElement>(null);
   const detailLeftRef = useRef<HTMLDivElement>(null);
   const detailRightRef = useRef<HTMLDivElement>(null);
-  const commitsCountRef = useRef(0);
   const prevQueryKeyRef = useRef("");
   const loadedQueryKeyRef = useRef("");
   const lastHandledFocusNonceRef = useRef<number | null>(null);
@@ -223,16 +222,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // Load commits when repo, branch, search, or refreshKey changes;
-  // preserve pagination depth and selected commit across background refreshes.
+  // Load all commits when repo, branch, search, or refreshKey changes;
+  // preserve selected commit across background refreshes.
   useEffect(() => {
     let cancelled = false;
     const queryKey = `${repo.path}\0${selectedBranch}\0${debouncedSearch}`;
     const isQueryChanged = prevQueryKeyRef.current !== queryKey;
     prevQueryKeyRef.current = queryKey;
-    const limit = isQueryChanged
-      ? PAGE_SIZE
-      : Math.max(PAGE_SIZE, commitsCountRef.current);
 
     setLoading(true);
     GitService.GetCommitHistory(
@@ -240,18 +236,22 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       selectedBranch,
       debouncedSearch,
       0,
-      limit
+      0
     )
       .then((page) => {
         if (cancelled) return;
         const list = page.commits ?? [];
-        commitsCountRef.current = list.length;
         loadedQueryKeyRef.current = queryKey;
         setCommits(list);
-        setHasMore(page.hasMore);
+        if (isQueryChanged && listRef.current) {
+          listRef.current.scrollTop = 0;
+          setScrollTop(0);
+        }
         if (list.length > 0) {
           setSelectedHash((prev) =>
-            prev && list.some((c) => c.hash === prev) ? prev : list[0].hash
+            !isQueryChanged && prev && list.some((c) => c.hash === prev)
+              ? prev
+              : list[0].hash
           );
         } else {
           setSelectedHash(null);
@@ -303,30 +303,6 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     debouncedSearch,
     viewportHeight,
   ]);
-
-  const loadMore = async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    try {
-      const page = await GitService.GetCommitHistory(
-        repo.path,
-        selectedBranch,
-        debouncedSearch,
-        commits.length,
-        PAGE_SIZE
-      );
-      setCommits((prev) => {
-        const next = [...prev, ...(page.commits ?? [])];
-        commitsCountRef.current = next.length;
-        return next;
-      });
-      setHasMore(page.hasMore);
-    } catch (err) {
-      onNotify("error", `Load more failed: ${err}`);
-    } finally {
-      setLoadingMore(false);
-    }
-  };
 
   // Load commit detail + full file tree when selectedHash changes
   useEffect(() => {
@@ -456,7 +432,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     }
     return Math.min(m, 24);
   }, [graphRows]);
-  const graphColWidth = Math.max(68, maxLanes * LANE_SPACING + 20);
+  const graphColWidth = Math.max(58, maxLanes * LANE_SPACING + 14);
 
   const overscan = 12;
   const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - overscan);
@@ -466,15 +442,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   );
 
   const handleListScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    setScrollTop(el.scrollTop);
-    if (
-      hasMore &&
-      !loadingMore &&
-      el.scrollTop + el.clientHeight >= el.scrollHeight - 160
-    ) {
-      loadMore();
-    }
+    setScrollTop(e.currentTarget.scrollTop);
   };
 
   const filteredChangedFiles = useMemo(() => {
@@ -543,8 +511,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           title={item.path}
           className={`flex items-center justify-between pr-2 py-1 rounded cursor-pointer transition-colors ${
             active
-              ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
-              : "hover:bg-[#f8fafc] text-[#334155]"
+              ? "bg-[#bae6fd]/75 text-[#0b1c30] font-medium shadow-[inset_2px_0_0_#0284c7]"
+              : "hover:bg-[#f1f5f9] text-[#334155]"
           }`}
         >
           <div className="flex items-center gap-1.5 min-w-0 pr-2">
@@ -591,9 +559,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     ))}
                   </optgroup>
                 )}
+                {stashes.length > 0 && (
+                  <optgroup label={`Stashes (${stashes.length})`}>
+                    {stashes.map((s) => (
+                      <option key={`stash:${s.ref}`} value={s.ref}>
+                        Stash: {s.ref} — {s.message}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
                 {selectedBranch !== "__ALL__" &&
                   !branches.some((b) => b.fullName === selectedBranch) &&
-                  !tags.some((t) => `refs/tags/${t.name}` === selectedBranch) && (
+                  !tags.some((t) => `refs/tags/${t.name}` === selectedBranch) &&
+                  !stashes.some((s) => s.ref === selectedBranch) && (
                     <option value={selectedBranch}>{selectedBranch}</option>
                   )}
               </select>
@@ -622,8 +600,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
           <div className="flex items-center gap-2 shrink-0">
             <span className="font-mono text-[12px] text-[#64748b]">
-              {commits.length}
-              {hasMore ? "+" : ""} commits
+              {commits.length} commits
             </span>
             <button
               title="Refresh history"
@@ -668,7 +645,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           ) : (
             <div
               style={{
-                height: commits.length * ROW_HEIGHT + (hasMore ? 36 : 0),
+                height: commits.length * ROW_HEIGHT,
                 position: "relative",
               }}
             >
@@ -676,7 +653,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 const idx = startIdx + offset;
                 const layout = graphRows[idx];
                 const isSelected = commit.hash === selectedHash;
-                const laneX = (l: number) => 12 + l * LANE_SPACING;
+                const laneX = (l: number) => 10 + l * LANE_SPACING;
 
                 return (
                   <div
@@ -703,8 +680,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     }}
                     className={`px-3 flex items-center cursor-pointer transition-colors ${
                       isSelected
-                        ? "bg-[#f0f9ff] shadow-[inset_2px_0_0_#0284c7]"
-                        : "hover:bg-[#f8fafc]"
+                        ? "bg-[#bae6fd]/75 shadow-[inset_3px_0_0_#0284c7]"
+                        : "hover:bg-[#f1f5f9]"
                     }`}
                   >
                     {/* SVG DAG Cell */}
@@ -730,7 +707,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                   x2={x1}
                                   y2={ROW_HEIGHT}
                                   stroke={edge.color}
-                                  strokeWidth={1.75}
+                                  strokeWidth={1.6}
                                 />
                               );
                             }
@@ -744,7 +721,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                     x2={x2}
                                     y2={ROW_HEIGHT / 2}
                                     stroke={edge.color}
-                                    strokeWidth={1.75}
+                                    strokeWidth={1.6}
                                   />
                                 );
                               }
@@ -754,7 +731,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                   d={`M ${x1} 0 C ${x1} ${ROW_HEIGHT * 0.35}, ${x2} ${ROW_HEIGHT * 0.2}, ${x2} ${ROW_HEIGHT / 2}`}
                                   fill="none"
                                   stroke={edge.color}
-                                  strokeWidth={1.75}
+                                  strokeWidth={1.6}
                                 />
                               );
                             }
@@ -767,7 +744,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                   x2={x2}
                                   y2={ROW_HEIGHT}
                                   stroke={edge.color}
-                                  strokeWidth={1.75}
+                                  strokeWidth={1.6}
                                 />
                               );
                             }
@@ -777,7 +754,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                 d={`M ${x1} ${ROW_HEIGHT / 2} C ${x1} ${ROW_HEIGHT * 0.8}, ${x2} ${ROW_HEIGHT * 0.65}, ${x2} ${ROW_HEIGHT}`}
                                 fill="none"
                                 stroke={edge.color}
-                                strokeWidth={1.75}
+                                strokeWidth={1.6}
                               />
                             );
                           })}
@@ -794,10 +771,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                   <circle
                                     cx={cx}
                                     cy={cy}
-                                    r={7}
+                                    r={6}
                                     fill="none"
                                     stroke={layout.color}
-                                    strokeWidth={1.25}
+                                    strokeWidth={1.2}
                                     strokeOpacity={0.45}
                                   />
                                 )}
@@ -805,19 +782,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                                   <circle
                                     cx={cx}
                                     cy={cy}
-                                    r={4.5}
+                                    r={3.8}
                                     fill="#ffffff"
                                     stroke={layout.color}
-                                    strokeWidth={2.25}
+                                    strokeWidth={2}
                                   />
                                 ) : (
                                   <circle
                                     cx={cx}
                                     cy={cy}
-                                    r={4.2}
+                                    r={3.6}
                                     fill={layout.color}
                                     stroke="#ffffff"
-                                    strokeWidth={1.5}
+                                    strokeWidth={1.25}
                                   />
                                 )}
                               </>
@@ -885,27 +862,6 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   </div>
                 );
               })}
-
-              {hasMore && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: commits.length * ROW_HEIGHT,
-                    left: 0,
-                    right: 0,
-                    height: 36,
-                  }}
-                  className="flex items-center justify-center border-t border-[#f1f5f9]"
-                >
-                  <button
-                    onClick={loadMore}
-                    disabled={loadingMore}
-                    className="px-3 py-1 rounded text-[11px] font-medium text-[#0284c7] hover:bg-[#f0f9ff] cursor-pointer"
-                  >
-                    {loadingMore ? "Loading next 100..." : "Load 100 more commits"}
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -1145,8 +1101,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                             onClick={() => setSelectedFile(f.path)}
                             className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
                               active
-                                ? "bg-[#f0f9ff] text-[#0b1c30] font-medium"
-                                : "hover:bg-[#f8fafc] text-[#334155]"
+                                ? "bg-[#bae6fd]/75 text-[#0b1c30] font-medium shadow-[inset_2px_0_0_#0284c7]"
+                                : "hover:bg-[#f1f5f9] text-[#334155]"
                             }`}
                           >
                             <div className="flex items-center gap-1.5 min-w-0 pr-2">
@@ -1271,7 +1227,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       onClick={() => setDiffMode("unified")}
                       className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] cursor-pointer ${
                         diffMode === "unified"
-                          ? "bg-[#f0f9ff] text-[#0284c7] font-medium"
+                          ? "bg-[#e0f2fe] text-[#0369a1] font-medium"
                           : "text-[#64748b]"
                       }`}
                     >
@@ -1282,7 +1238,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       onClick={() => setDiffMode("split")}
                       className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] cursor-pointer ${
                         diffMode === "split"
-                          ? "bg-[#f0f9ff] text-[#0284c7] font-medium"
+                          ? "bg-[#e0f2fe] text-[#0369a1] font-medium"
                           : "text-[#64748b]"
                       }`}
                     >

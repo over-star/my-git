@@ -119,11 +119,13 @@ type ViewMode = "history" | "changes" | "conflicts";
 function isValidHistoryRef(
   ref: string,
   branches: BranchInfo[],
-  tags: TagInfo[]
+  tags: TagInfo[],
+  stashes: StashItem[] = []
 ): boolean {
   if (!ref || ref === "__ALL__") return true;
   if (branches.some((b) => b.fullName === ref || b.name === ref)) return true;
   if (tags.some((t) => `refs/tags/${t.name}` === ref || t.name === ref)) return true;
+  if (stashes.some((s) => s.ref === ref)) return true;
   return false;
 }
 
@@ -313,7 +315,7 @@ export function App() {
   const appSettingsRef = React.useRef<AppSettings>(appSettings);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     state: "idle",
-    currentVersion: "0.1.5",
+    currentVersion: "0.1.6",
     available: null,
     downloadedBytes: 0,
     totalBytes: 0,
@@ -455,6 +457,7 @@ export function App() {
               prev.repoPath === target &&
               prev.ref !== "__ALL__" &&
               !prev.ref.startsWith("refs/tags/") &&
+              !prev.ref.startsWith("stash@{") &&
               !isValidHistoryRef(prev.ref, nextBranches, [])
                 ? { repoPath: target, ref: "__ALL__" }
                 : prev
@@ -507,6 +510,13 @@ export function App() {
             const nextStashes = sh ?? [];
             setStashes(nextStashes);
             updateRepoCache(target, { stashes: nextStashes });
+            setHistoryBranchState((prev) =>
+              prev.repoPath === target &&
+              prev.ref.startsWith("stash@{") &&
+              !isValidHistoryRef(prev.ref, [], [], nextStashes)
+                ? { repoPath: target, ref: "__ALL__" }
+                : prev
+            );
           })
           .catch((err) => {
             if (firstError === null) firstError = err;
@@ -2591,20 +2601,28 @@ export function App() {
                 }
               }}
               onInspectBranch={(refName, focusSha, forceScope) => {
-                if (!refName.startsWith("refs/tags/")) {
+                const isTag = refName.startsWith("refs/tags/");
+                const isStash = refName.startsWith("stash@{");
+                if (!isTag && !isStash) {
                   setLastBranchRef(refName);
                 }
                 const effectiveScope = forceScope ?? branchScopeMode;
                 if (forceScope) {
                   setBranchScopeMode(forceScope);
                 }
-                if (effectiveScope === "all" && !refName.startsWith("refs/tags/")) {
+                if (isStash) {
+                  setHistoryBranch(refName);
+                  setFocusCommitSignal(null);
+                } else if (effectiveScope === "all") {
                   setHistoryBranch("__ALL__");
                   if (focusSha) {
                     setFocusCommitSignal({ sha: focusSha, nonce: Date.now() });
                   }
                 } else {
                   setHistoryBranch(refName);
+                  if (focusSha) {
+                    setFocusCommitSignal({ sha: focusSha, nonce: Date.now() });
+                  }
                 }
                 setView("history");
               }}
@@ -2726,12 +2744,13 @@ export function App() {
                   repo={activeRepo}
                   branches={branches}
                   tags={tags}
+                  stashes={stashes}
                   selectedBranch={historyBranch}
                   onSelectBranch={(ref) => {
                     setHistoryBranch(ref);
                     if (ref === "__ALL__") {
                       setBranchScopeMode("all");
-                    } else {
+                    } else if (!ref.startsWith("stash@{")) {
                       setBranchScopeMode("branch");
                       if (!ref.startsWith("refs/tags/")) {
                         setLastBranchRef(ref);

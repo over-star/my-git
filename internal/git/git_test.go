@@ -342,9 +342,16 @@ func TestTagLifecycleAndRemotePushDelete(t *testing.T) {
 	if res, err := CreateTag(ctx, loc, "v1.0.0", "", "First release"); err != nil || !res.Success {
 		t.Fatalf("CreateTag failed: %+v %v", res, err)
 	}
+	headShort, _, err := RunGit(ctx, loc, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse HEAD failed: %v", err)
+	}
 	tags, err := ListTags(ctx, loc)
 	if err != nil || len(tags) != 1 || tags[0].Name != "v1.0.0" {
 		t.Fatalf("ListTags unexpected: %+v err=%v", tags, err)
+	}
+	if tags[0].Hash != strings.TrimSpace(headShort) {
+		t.Fatalf("expected annotated tag hash %q to match peeled commit %q", tags[0].Hash, strings.TrimSpace(headShort))
 	}
 
 	if res, err := PushTag(ctx, loc, "", "v1.0.0"); err != nil || !res.Success {
@@ -1222,7 +1229,52 @@ func TestCommandObserverEmitsForOpsOnly(t *testing.T) {
 	}
 }
 
+func TestGetCommitHistoryLoadAllWithZeroLimit(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
 
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	_, _, _ = RunGit(ctx, loc, "config", "user.name", "Test User")
+	_, _, _ = RunGit(ctx, loc, "config", "user.email", "test@example.com")
 
+	for i := 1; i <= 5; i++ {
+		name := fmt.Sprintf("f%d.txt", i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := StageAll(ctx, loc); err != nil {
+			t.Fatal(err)
+		}
+		if res, err := Commit(ctx, loc, fmt.Sprintf("commit %d", i), "", false); err != nil || !res.Success {
+			t.Fatalf("commit %d failed: %+v %v", i, res, err)
+		}
+	}
 
+	all, err := GetCommitHistory(ctx, loc, "__ALL__", "", 0, 0)
+	if err != nil {
+		t.Fatalf("GetCommitHistory(limit=0) failed: %v", err)
+	}
+	if all.HasMore || len(all.Commits) != 5 {
+		t.Fatalf("expected all 5 commits with HasMore=false, got len=%d hasMore=%v", len(all.Commits), all.HasMore)
+	}
+
+	paged, err := GetCommitHistory(ctx, loc, "__ALL__", "", 0, 2)
+	if err != nil {
+		t.Fatalf("GetCommitHistory(limit=2) failed: %v", err)
+	}
+	if !paged.HasMore || len(paged.Commits) != 2 {
+		t.Fatalf("expected 2 commits with HasMore=true, got len=%d hasMore=%v", len(paged.Commits), paged.HasMore)
+	}
+
+	searched, err := GetCommitHistory(ctx, loc, "__ALL__", "commit 1", 0, 0)
+	if err != nil {
+		t.Fatalf("GetCommitHistory search failed: %v", err)
+	}
+	if searched.HasMore || len(searched.Commits) != 1 || searched.Commits[0].Subject != "commit 1" {
+		t.Fatalf("expected 1 matching oldest commit, got %+v", searched)
+	}
+}
 
