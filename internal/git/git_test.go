@@ -1146,6 +1146,82 @@ func TestGetRecentCommitMessages(t *testing.T) {
 	}
 }
 
+func TestFormatGitCommand(t *testing.T) {
+	got := FormatGitCommand([]string{"commit", "-m", "feat: add drag & echo", "-m", "line1\nline2"})
+	want := `git commit -m "feat: add drag & echo" -m "line1\nline2"`
+	if got != want {
+		t.Fatalf("FormatGitCommand = %q, want %q", got, want)
+	}
+
+	gotEmpty := FormatGitCommand([]string{"commit", "-m", ""})
+	if gotEmpty != `git commit -m ""` {
+		t.Fatalf("FormatGitCommand empty arg = %q", gotEmpty)
+	}
+}
+
+func TestCommandObserverEmitsForOpsOnly(t *testing.T) {
+	var events []CommandEvent
+	ctx := WithCommandObserver(context.Background(), func(ev CommandEvent) {
+		events = append(events, ev)
+	})
+
+	dir := t.TempDir()
+	loc, err := InitRepo(ctx, dir)
+	if err != nil {
+		t.Fatalf("InitRepo failed: %v", err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "config", "user.name", "Test User"); err != nil {
+		t.Fatalf("config user.name failed: %s (%v)", stderr, err)
+	}
+	if _, stderr, err := RunGit(ctx, loc, "config", "user.email", "test@example.com"); err != nil {
+		t.Fatalf("config user.email failed: %s (%v)", stderr, err)
+	}
+
+	// Read-only query should NOT emit events
+	eventsBeforeStatus := len(events)
+	if _, err := GetRepoStatus(ctx, loc); err != nil {
+		t.Fatalf("GetRepoStatus failed: %v", err)
+	}
+	if len(events) != eventsBeforeStatus {
+		t.Fatalf("expected GetRepoStatus not to emit command events, got %+v", events[eventsBeforeStatus:])
+	}
+
+	// Stage + Commit should emit running/success pairs
+	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := StageFile(ctx, loc, "hello.txt"); err != nil {
+		t.Fatalf("StageFile failed: %v", err)
+	}
+	res, err := Commit(ctx, loc, "initial commit", "", false)
+	if err != nil || !res.Success {
+		t.Fatalf("Commit failed: %+v %v", res, err)
+	}
+
+	// Failing op should emit running -> error
+	_, _ = CheckoutBranch(ctx, loc, "nonexistent-branch", false)
+
+	var foundInit, foundAdd, foundCommit, foundCheckoutErr bool
+	for _, ev := range events {
+		if ev.Command == "git init" && ev.Status == "success" {
+			foundInit = true
+		}
+		if ev.Command == "git add -- hello.txt" && ev.Status == "success" {
+			foundAdd = true
+		}
+		if ev.Command == `git commit -m "initial commit"` && ev.Status == "success" {
+			foundCommit = true
+		}
+		if ev.Command == "git checkout nonexistent-branch" && ev.Status == "error" && ev.Error != "" {
+			foundCheckoutErr = true
+		}
+	}
+	if !foundInit || !foundAdd || !foundCommit || !foundCheckoutErr {
+		t.Fatalf("missing expected command events (init=%v add=%v commit=%v checkoutErr=%v); events=%+v",
+			foundInit, foundAdd, foundCommit, foundCheckoutErr, events)
+	}
+}
+
 
 
 

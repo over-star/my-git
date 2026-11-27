@@ -26,7 +26,7 @@ func Commit(ctx context.Context, loc RepoLocation, summary, description string, 
 		args = append(args, "--amend")
 	}
 
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		low := strings.ToLower(combined)
@@ -563,7 +563,7 @@ func RevertCommit(ctx context.Context, loc RepoLocation, hash string, isMerge bo
 	}
 	args = append(args, hash)
 
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		low := strings.ToLower(combined)
@@ -603,7 +603,7 @@ func ResetToCommit(ctx context.Context, loc RepoLocation, hash, mode string) (Op
 		return OpResult{Success: false, Message: "Invalid reset mode: " + mode}, nil
 	}
 
-	stdout, stderr, err := RunGit(ctx, loc, "reset", flag, hash)
+	stdout, stderr, err := RunGitOp(ctx, loc, "reset", flag, hash)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{

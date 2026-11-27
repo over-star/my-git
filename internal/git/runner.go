@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"time"
 	"unicode/utf16"
 )
 
@@ -86,22 +88,125 @@ func ParseRepoLocation(rawPath string) RepoLocation {
 	}
 }
 
+type commandObserverKey struct{}
+
+// CommandObserver receives lifecycle updates for executed git operation commands.
+type CommandObserver func(CommandEvent)
+
+var commandSeq atomic.Uint64
+
+// WithCommandObserver attaches a CommandObserver to ctx for RunGitOp / RunGitInDirOp calls.
+func WithCommandObserver(ctx context.Context, obs CommandObserver) context.Context {
+	if obs == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, commandObserverKey{}, obs)
+}
+
+func commandObserverFromContext(ctx context.Context) CommandObserver {
+	if ctx == nil {
+		return nil
+	}
+	obs, _ := ctx.Value(commandObserverKey{}).(CommandObserver)
+	return obs
+}
+
+// FormatGitCommand formats a git invocation into a readable shell-style command string.
+func FormatGitCommand(args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "git")
+	for _, a := range args {
+		parts = append(parts, quoteCommandArg(a))
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteCommandArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	clean := strings.ReplaceAll(arg, "\r\n", "\n")
+	clean = strings.ReplaceAll(clean, "\r", "\n")
+	if !strings.ContainsAny(clean, " \t\n\"'\\$`&|;<>()*?[]{}") {
+		return clean
+	}
+	escaped := strings.ReplaceAll(clean, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	escaped = strings.ReplaceAll(escaped, "\n", `\n`)
+	return `"` + escaped + `"`
+}
+
+func emitCommandStart(ctx context.Context, repoPath string, args []string) (CommandObserver, string, string, time.Time) {
+	obs := commandObserverFromContext(ctx)
+	if obs == nil {
+		return nil, "", "", time.Time{}
+	}
+	cmdID := fmt.Sprintf("git-%d", commandSeq.Add(1))
+	cmdStr := FormatGitCommand(args)
+	startedAt := time.Now()
+	obs(CommandEvent{
+		ID:        cmdID,
+		RepoPath:  repoPath,
+		Command:   cmdStr,
+		Status:    "running",
+		Timestamp: startedAt.UnixMilli(),
+	})
+	return obs, cmdID, cmdStr, startedAt
+}
+
+func emitCommandEnd(obs CommandObserver, cmdID, repoPath, cmdStr string, startedAt time.Time, stdout, stderr string, err error) {
+	if obs == nil {
+		return
+	}
+	durMs := time.Since(startedAt).Milliseconds()
+	ev := CommandEvent{
+		ID:         cmdID,
+		RepoPath:   repoPath,
+		Command:    cmdStr,
+		Status:     "success",
+		DurationMs: durMs,
+		Timestamp:  time.Now().UnixMilli(),
+	}
+	if err != nil {
+		ev.Status = "error"
+		ev.Error = firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error())
+	}
+	obs(ev)
+}
+
 // RunGit executes a git command inside the repository (local or WSL2).
 func RunGit(ctx context.Context, loc RepoLocation, args ...string) (string, string, error) {
-	return runGitWithDir(ctx, loc, false, "", args...)
+	return runGitWithDir(ctx, loc, false, "", false, args...)
+}
+
+// RunGitOp executes a mutating git operation inside the repository and notifies any CommandObserver.
+func RunGitOp(ctx context.Context, loc RepoLocation, args ...string) (string, string, error) {
+	return runGitWithDir(ctx, loc, false, "", true, args...)
 }
 
 // RunGitWithStdin executes a git command with the provided stdin content.
 func RunGitWithStdin(ctx context.Context, loc RepoLocation, stdinData string, args ...string) (string, string, error) {
-	return runGitWithDir(ctx, loc, false, stdinData, args...)
+	return runGitWithDir(ctx, loc, false, stdinData, false, args...)
 }
 
 // RunGitInDir executes git without requiring the repo directory to exist yet (used for clone).
 func RunGitInDir(ctx context.Context, loc RepoLocation, args ...string) (string, string, error) {
-	return runGitWithDir(ctx, loc, true, "", args...)
+	return runGitWithDir(ctx, loc, true, "", false, args...)
 }
 
-func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, stdinData string, args ...string) (string, string, error) {
+// RunGitInDirOp executes a mutating git command without requiring the repo directory to exist yet and notifies any CommandObserver.
+func RunGitInDirOp(ctx context.Context, loc RepoLocation, args ...string) (string, string, error) {
+	return runGitWithDir(ctx, loc, true, "", true, args...)
+}
+
+func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, stdinData string, emit bool, args ...string) (string, string, error) {
+	var obs CommandObserver
+	var cmdID, cmdStr string
+	var startedAt time.Time
+	if emit {
+		obs, cmdID, cmdStr, startedAt = emitCommandStart(ctx, loc.Path, args)
+	}
+
 	fullArgs := append([]string{"-c", "core.quotepath=false"}, args...)
 	sshCmd := ""
 	if isRemoteGitOp(args) {
@@ -158,6 +263,9 @@ func runGitWithDir(ctx context.Context, loc RepoLocation, skipCD bool, stdinData
 	cmd.Stderr = &stderrBuf
 
 	err := cmd.Run()
+	if emit {
+		emitCommandEnd(obs, cmdID, loc.Path, cmdStr, startedAt, stdoutBuf.String(), stderrBuf.String(), err)
+	}
 	return stdoutBuf.String(), stderrBuf.String(), err
 }
 
@@ -363,7 +471,7 @@ func InitRepo(ctx context.Context, rawPath string) (RepoLocation, error) {
 		}
 	}
 
-	_, stderr, err := RunGit(ctx, loc, "init")
+	_, stderr, err := RunGitOp(ctx, loc, "init")
 	if err != nil {
 		return loc, fmt.Errorf("git init failed: %s (%w)", strings.TrimSpace(stderr), err)
 	}

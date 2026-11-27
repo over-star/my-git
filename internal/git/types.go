@@ -328,3 +328,14 @@ type GitConfigUpdate struct {
 	SigningKey    string `json:"signingKey"`
 	SSHCommand    string `json:"sshCommand"`
 }
+
+// CommandEvent describes an executed git operation command for live UI echoing.
+type CommandEvent struct {
+	ID         string `json:"id"`
+	RepoPath   string `json:"repoPath"`
+	Command    string `json:"command"`
+	Status     string `json:"status"` // "running", "success", "error"
+	Error      string `json:"error,omitempty"`
+	DurationMs int64  `json:"durationMs"`
+	Timestamp  int64  `json:"timestamp"`
+}

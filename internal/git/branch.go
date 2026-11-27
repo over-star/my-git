@@ -217,7 +217,7 @@ func CheckoutBranch(ctx context.Context, loc RepoLocation, branchName string, is
 		args = []string{"checkout", branchName}
 	}
 
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	return classifyCheckoutResult(branchName, stdout, stderr, err), nil
 }
 
@@ -237,7 +237,7 @@ func CreateBranch(ctx context.Context, loc RepoLocation, name, startPoint string
 		args = append(args, strings.TrimSpace(startPoint))
 	}
 
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -251,7 +251,7 @@ func CreateBranch(ctx context.Context, loc RepoLocation, name, startPoint string
 
 // MergeBranch merges the specified branch into the current branch.
 func MergeBranch(ctx context.Context, loc RepoLocation, branchName string) (OpResult, error) {
-	stdout, stderr, err := RunGit(ctx, loc, "merge", branchName)
+	stdout, stderr, err := RunGitOp(ctx, loc, "merge", branchName)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		low := strings.ToLower(combined)
@@ -277,7 +277,7 @@ func DeleteBranch(ctx context.Context, loc RepoLocation, name string, force bool
 	if force {
 		flag = "-D"
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "branch", flag, name)
+	stdout, stderr, err := RunGitOp(ctx, loc, "branch", flag, name)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -296,7 +296,7 @@ func RenameBranch(ctx context.Context, loc RepoLocation, oldName, newName string
 	if oldName == "" || newName == "" {
 		return OpResult{Success: false, Message: "Both old and new branch names are required"}, nil
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "branch", "-m", oldName, newName)
+	stdout, stderr, err := RunGitOp(ctx, loc, "branch", "-m", oldName, newName)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -315,7 +315,7 @@ func DeleteRemoteBranch(ctx context.Context, loc RepoLocation, remoteBranch stri
 		return OpResult{Success: false, Message: "Invalid remote branch name: " + remoteBranch}, nil
 	}
 	remoteName, branchName := parts[0], parts[1]
-	stdout, stderr, err := RunGit(ctx, loc, "push", remoteName, "--delete", branchName)
+	stdout, stderr, err := RunGitOp(ctx, loc, "push", remoteName, "--delete", branchName)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -366,7 +366,7 @@ func CreateTag(ctx context.Context, loc RepoLocation, name, target, message stri
 	if strings.TrimSpace(target) != "" {
 		args = append(args, strings.TrimSpace(target))
 	}
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{Success: false, Message: firstNonEmpty(strings.TrimSpace(stderr), err.Error()), Output: combined}, nil
@@ -380,7 +380,7 @@ func CheckoutTag(ctx context.Context, loc RepoLocation, tagName string) (OpResul
 	if tagName == "" {
 		return OpResult{Success: false, Message: "Tag name is required"}, nil
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "checkout", "refs/tags/"+tagName)
+	stdout, stderr, err := RunGitOp(ctx, loc, "checkout", "refs/tags/"+tagName)
 	return classifyCheckoutResult("tag "+tagName+" (detached HEAD)", stdout, stderr, err), nil
 }
 
@@ -390,7 +390,7 @@ func DeleteTag(ctx context.Context, loc RepoLocation, name string) (OpResult, er
 	if name == "" {
 		return OpResult{Success: false, Message: "Tag name is required"}, nil
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "tag", "-d", name)
+	stdout, stderr, err := RunGitOp(ctx, loc, "tag", "-d", name)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -409,7 +409,7 @@ func PushTag(ctx context.Context, loc RepoLocation, remoteName, tagName string) 
 		return OpResult{Success: false, Message: "Tag name is required"}, nil
 	}
 	remote := resolveDefaultRemote(ctx, loc, remoteName)
-	stdout, stderr, err := RunGit(ctx, loc, "push", remote, "refs/tags/"+tagName)
+	stdout, stderr, err := RunGitOp(ctx, loc, "push", remote, "refs/tags/"+tagName)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return classifyPushError(ctx, loc, remote, stdout, stderr, err), nil
@@ -428,7 +428,7 @@ func DeleteRemoteTag(ctx context.Context, loc RepoLocation, remoteName, tagName 
 		return OpResult{Success: false, Message: "Tag name is required"}, nil
 	}
 	remote := resolveDefaultRemote(ctx, loc, remoteName)
-	stdout, stderr, err := RunGit(ctx, loc, "push", remote, "--delete", "refs/tags/"+tagName)
+	stdout, stderr, err := RunGitOp(ctx, loc, "push", remote, "--delete", "refs/tags/"+tagName)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return classifyPushError(ctx, loc, remote, stdout, stderr, err), nil
@@ -490,7 +490,7 @@ func StashPush(ctx context.Context, loc RepoLocation, message string, includeUnt
 	if strings.TrimSpace(message) != "" {
 		args = append(args, "-m", strings.TrimSpace(message))
 	}
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{Success: false, Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()), Output: combined}, nil
@@ -503,7 +503,7 @@ func StashApply(ctx context.Context, loc RepoLocation, ref string) (OpResult, er
 	if ref == "" {
 		ref = "stash@{0}"
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "stash", "apply", ref)
+	stdout, stderr, err := RunGitOp(ctx, loc, "stash", "apply", ref)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		code := ""
@@ -520,7 +520,7 @@ func StashPop(ctx context.Context, loc RepoLocation, ref string) (OpResult, erro
 	if ref == "" {
 		ref = "stash@{0}"
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "stash", "pop", ref)
+	stdout, stderr, err := RunGitOp(ctx, loc, "stash", "pop", ref)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		code := ""
@@ -537,7 +537,7 @@ func StashDrop(ctx context.Context, loc RepoLocation, ref string) (OpResult, err
 	if ref == "" {
 		ref = "stash@{0}"
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "stash", "drop", ref)
+	stdout, stderr, err := RunGitOp(ctx, loc, "stash", "drop", ref)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{Success: false, Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()), Output: combined}, nil

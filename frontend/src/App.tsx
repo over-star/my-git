@@ -30,6 +30,7 @@ import {
 import { Events } from "@wailsio/runtime";
 import type {
   BranchInfo,
+  CommandEvent,
   CommitItem,
   FileStatus,
   RemoteInfo,
@@ -132,9 +133,35 @@ interface ToastMsg {
   text: string;
 }
 
+function formatCmdDuration(ms: number): string {
+  if (!ms || ms < 1) return "<1ms";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatCmdTime(ts: number): string {
+  if (!ts) return "";
+  try {
+    return new Date(ts).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return "";
+  }
+}
+
 export function App() {
   const [tabs, setTabs] = useState<RepoLocation[]>([]);
+  const [tabsHydrated, setTabsHydrated] = useState(false);
   const [activePath, setActivePath] = useState<string | null>(null);
+  const [draggingTabPath, setDraggingTabPath] = useState<string | null>(null);
+  const tabStripRef = React.useRef<HTMLDivElement | null>(null);
+  const tabElRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
+  const suppressTabClickRef = React.useRef(false);
+  const tabDragCleanupRef = React.useRef<(() => void) | null>(null);
   const [view, setView] = useState<ViewMode>("changes");
   const [historyBranchState, setHistoryBranchState] = useState<{
     repoPath: string;
@@ -183,6 +210,9 @@ export function App() {
   const [globalGitVer, setGlobalGitVer] = useState("");
   const [quickFilter, setQuickFilter] = useState("");
   const [repoSwitcherOpen, setRepoSwitcherOpen] = useState(false);
+  const [commandLogs, setCommandLogs] = useState<CommandEvent[]>([]);
+  const [cmdHistoryOpen, setCmdHistoryOpen] = useState(false);
+  const [copiedCmdId, setCopiedCmdId] = useState<string | null>(null);
   const [tabCtxMenu, setTabCtxMenu] = useState<{
     x: number;
     y: number;
@@ -283,7 +313,7 @@ export function App() {
   const appSettingsRef = React.useRef<AppSettings>(appSettings);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     state: "idle",
-    currentVersion: "0.1.4",
+    currentVersion: "0.1.5",
     available: null,
     downloadedBytes: 0,
     totalBytes: 0,
@@ -585,7 +615,8 @@ export function App() {
             : loaded[0].path;
         setActivePath(active);
       })
-      .catch(() => setRepoModalOpen(true));
+      .catch(() => setRepoModalOpen(true))
+      .finally(() => setTabsHydrated(true));
 
     UpdateService.GetUpdateStatus()
       .then((st) => {
@@ -598,6 +629,20 @@ export function App() {
       if (payload && payload.state) {
         setUpdateStatus(payload);
       }
+    });
+
+    const offCommand = Events.On("git:command", (ev: any) => {
+      const payload = (ev?.data ?? ev) as CommandEvent;
+      if (!payload || !payload.id || !payload.command) return;
+      setCommandLogs((prev) => {
+        const idx = prev.findIndex((item) => item.id === payload.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = payload;
+          return next;
+        }
+        return [payload, ...prev].slice(0, 40);
+      });
     });
 
     const offOpenRepo = Events.On("app:open-repo", (ev: any) => {
@@ -634,18 +679,21 @@ export function App() {
 
     return () => {
       offUpdate();
+      offCommand();
       offOpenRepo();
+      tabDragCleanupRef.current?.();
       if (updateTimer) window.clearTimeout(updateTimer);
     };
   }, []);
 
-  // Persist tabs whenever changed
+  // Persist tabs whenever changed (skip intermediate writes mid-drag)
   useEffect(() => {
+    if (!tabsHydrated || draggingTabPath) return;
     GitService.SaveOpenTabs(
       tabs.map((t) => t.path),
       activePath ?? ""
     );
-  }, [tabs, activePath]);
+  }, [tabs, activePath, tabsHydrated, draggingTabPath]);
 
   const prevIgnoreWsRef = React.useRef<boolean>(appSettings.ignoreWhitespace);
   useEffect(() => {
@@ -689,17 +737,19 @@ export function App() {
       setPinnedBranches([]);
     }
     setRepoSwitcherOpen(false);
+    setCmdHistoryOpen(false);
     setTabCtxMenu(null);
     if (activePath) {
       refreshRepo(activePath, { skipHistoryBump: true });
     }
   }, [activePath]);
 
-  // Close repo switcher or tab context menu on outside click / Escape
+  // Close repo switcher, command history or tab context menu on outside click / Escape
   useEffect(() => {
-    if (!repoSwitcherOpen && !tabCtxMenu) return;
+    if (!repoSwitcherOpen && !tabCtxMenu && !cmdHistoryOpen) return;
     const close = () => {
       setRepoSwitcherOpen(false);
+      setCmdHistoryOpen(false);
       setTabCtxMenu(null);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -711,7 +761,7 @@ export function App() {
       window.removeEventListener("click", close);
       window.removeEventListener("keydown", onKey);
     };
-  }, [repoSwitcherOpen, tabCtxMenu]);
+  }, [repoSwitcherOpen, tabCtxMenu, cmdHistoryOpen]);
 
   // Auto-refresh on window focus
   useEffect(() => {
@@ -1625,6 +1675,120 @@ export function App() {
     }
   };
 
+  const handleTabMouseDown = (
+    e: React.MouseEvent<HTMLDivElement>,
+    tabPath: string
+  ) => {
+    if (e.button !== 0 || tabs.length < 2) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+
+    const startX = e.clientX;
+    let didDrag = false;
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+
+    const finish = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", finish);
+      window.removeEventListener("blur", finish);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+      tabDragCleanupRef.current = null;
+      if (didDrag) {
+        setDraggingTabPath(null);
+        window.setTimeout(() => {
+          suppressTabClickRef.current = false;
+        }, 0);
+      }
+    };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!didDrag) {
+        if (Math.abs(ev.clientX - startX) < 5) return;
+        didDrag = true;
+        suppressTabClickRef.current = true;
+        setDraggingTabPath(tabPath);
+        setRepoSwitcherOpen(false);
+        setTabCtxMenu(null);
+        document.body.style.cursor = "grabbing";
+        document.body.style.userSelect = "none";
+      }
+
+      const strip = tabStripRef.current;
+      if (strip) {
+        const sr = strip.getBoundingClientRect();
+        if (ev.clientX < sr.left + 28) {
+          strip.scrollLeft -= 12;
+        } else if (ev.clientX > sr.right - 28) {
+          strip.scrollLeft += 12;
+        }
+      }
+
+      setTabs((prev) => {
+        const curIdx = prev.findIndex((t) => t.path === tabPath);
+        if (curIdx < 0) return prev;
+        const curEl = tabElRefs.current[tabPath];
+        if (!curEl) return prev;
+        const curRect = curEl.getBoundingClientRect();
+
+        let targetIdx = curIdx;
+        if (ev.clientX < curRect.left) {
+          for (let j = 0; j < curIdx; j++) {
+            const el = tabElRefs.current[prev[j].path];
+            if (!el) continue;
+            const r = el.getBoundingClientRect();
+            if (ev.clientX < r.left + r.width * 0.5) {
+              targetIdx = j;
+              break;
+            }
+          }
+        } else if (ev.clientX > curRect.right) {
+          for (let j = prev.length - 1; j > curIdx; j--) {
+            const el = tabElRefs.current[prev[j].path];
+            if (!el) continue;
+            const r = el.getBoundingClientRect();
+            if (ev.clientX > r.left + r.width * 0.5) {
+              targetIdx = j;
+              break;
+            }
+          }
+        }
+
+        if (targetIdx === curIdx) return prev;
+        const next = [...prev];
+        const [moved] = next.splice(curIdx, 1);
+        next.splice(targetIdx, 0, moved);
+        return next;
+      });
+    };
+
+    tabDragCleanupRef.current?.();
+    tabDragCleanupRef.current = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", finish);
+      window.removeEventListener("blur", finish);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", finish);
+    window.addEventListener("blur", finish);
+  };
+
+  const copyCommandText = (id: string, cmdText: string) => {
+    navigator.clipboard?.writeText(cmdText).catch(() => {});
+    setCopiedCmdId(id);
+    window.setTimeout(() => {
+      setCopiedCmdId((cur) => (cur === id ? null : cur));
+    }, 1500);
+  };
+
+  const activeCommandLogs = commandLogs.filter(
+    (c) => !activePath || !c.repoPath || c.repoPath === activePath
+  );
+  const latestCmd = activeCommandLogs[0] ?? commandLogs[0] ?? null;
+
   const changedCount = (status?.unstaged?.length ?? 0) + (status?.staged?.length ?? 0);
   const conflictCount = status?.conflicted?.length ?? 0;
 
@@ -1756,6 +1920,7 @@ export function App() {
 
           {/* Scrollable Chrome-style Repo Tabs */}
           <div
+            ref={tabStripRef}
             onWheel={(e) => {
               if (e.deltaY !== 0) {
                 e.currentTarget.scrollLeft += e.deltaY;
@@ -1765,15 +1930,27 @@ export function App() {
           >
             {tabs.map((tab, idx) => {
               const active = tab.path === activePath;
+              const isDragging = draggingTabPath === tab.path;
               const nextActive = tabs[idx + 1]?.path === activePath;
-              const showDivider = !active && !nextActive && idx < tabs.length - 1;
+              const showDivider =
+                !active && !nextActive && !isDragging && idx < tabs.length - 1;
               const tabTitle = `${tab.isWsl ? `WSL2 (${tab.distro}): ${tab.linuxPath}` : tab.path}${
                 tab.isWorktree ? " (Worktree)" : ""
-              }`;
+              }${tabs.length > 1 ? "\n拖拽可调整项目顺序" : ""}`;
               return (
                 <React.Fragment key={tab.path}>
                   <div
-                    onClick={() => setActivePath(tab.path)}
+                    ref={(el) => {
+                      tabElRefs.current[tab.path] = el;
+                    }}
+                    onMouseDown={(e) => handleTabMouseDown(e, tab.path)}
+                    onClick={() => {
+                      if (suppressTabClickRef.current) {
+                        suppressTabClickRef.current = false;
+                        return;
+                      }
+                      setActivePath(tab.path);
+                    }}
                     onAuxClick={(e) => {
                       if (e.button === 1) {
                         e.preventDefault();
@@ -1791,7 +1968,11 @@ export function App() {
                       });
                     }}
                     title={tabTitle}
-                    className={`group relative flex items-center justify-between gap-1.5 px-3 text-[12px] cursor-pointer select-none transition-colors shrink-0 min-w-[116px] max-w-[205px] ${
+                    className={`group relative flex items-center justify-between gap-1.5 px-3 text-[12px] select-none transition-all duration-150 shrink-0 min-w-[116px] max-w-[205px] ${
+                      isDragging
+                        ? "opacity-80 scale-[0.98] ring-1 ring-[#0284c7]/60 shadow-sm z-30 cursor-grabbing"
+                        : "cursor-pointer"
+                    } ${
                       active
                         ? "chrome-tab-active z-20 h-[34px] rounded-t-[10px] bg-white text-[#0b1c30] font-semibold"
                         : "h-[28px] mb-[4px] mx-[1px] rounded-[8px] bg-transparent text-[#3f4d63] font-medium hover:bg-[#cad9f0]/75 hover:text-[#0b1c30]"
@@ -2145,57 +2326,205 @@ export function App() {
       </div>
 
       {/* 3. VIEW SWITCHER BAR */}
-      <div className="h-9 px-3 bg-[#eff4ff] border-b border-[#e2e8f0] flex items-center justify-between shrink-0 select-none">
-        <nav className="flex items-center gap-1">
-          <button
-            onClick={() => setView("history")}
-            className={`px-3 py-1 rounded text-[12px] font-medium transition-colors cursor-pointer ${
-              view === "history"
-                ? "bg-[#0284c7] text-white shadow-sm"
-                : "text-[#475569] hover:text-[#0b1c30] hover:bg-[#e5eeff]"
-            }`}
-          >
-            Commit Graph
-          </button>
-          <button
-            onClick={() => setView("changes")}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded text-[12px] font-medium transition-colors cursor-pointer ${
-              view === "changes"
-                ? "bg-[#0284c7] text-white shadow-sm"
-                : "text-[#475569] hover:text-[#0b1c30] hover:bg-[#e5eeff]"
-            }`}
-          >
-            <span>Staging & Working Tree</span>
-            {changedCount > 0 && (
-              <span
-                className={`px-1.5 rounded-full text-[10px] font-mono font-semibold ${
-                  view === "changes"
-                    ? "bg-white/25 text-white"
-                    : "bg-[#dbeafe] text-[#0369a1]"
+      <div className="h-9 px-3 bg-[#eff4ff] border-b border-[#e2e8f0] flex items-center justify-between gap-3 shrink-0 select-none">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <nav className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setView("changes")}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded text-[12px] font-medium transition-colors cursor-pointer ${
+                view === "changes"
+                  ? "bg-[#0284c7] text-white shadow-sm"
+                  : "text-[#475569] hover:text-[#0b1c30] hover:bg-[#e5eeff]"
+              }`}
+            >
+              <span>Staging & Working Tree</span>
+              {changedCount > 0 && (
+                <span
+                  className={`px-1.5 rounded-full text-[10px] font-mono font-semibold ${
+                    view === "changes"
+                      ? "bg-white/25 text-white"
+                      : "bg-[#dbeafe] text-[#0369a1]"
+                  }`}
+                >
+                  {changedCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setView("conflicts")}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded text-[12px] font-medium transition-colors cursor-pointer ${
+                view === "conflicts"
+                  ? "bg-[#0284c7] text-white shadow-sm"
+                  : "text-[#475569] hover:text-[#0b1c30] hover:bg-[#e5eeff]"
+              }`}
+            >
+              <span>Merge Conflict Resolver</span>
+              {conflictCount > 0 && (
+                <span className="px-1.5 rounded-full text-[10px] font-mono font-semibold bg-[#dc2626] text-white">
+                  {conflictCount}
+                </span>
+              )}
+            </button>
+          </nav>
+
+          {/* Executed Git Command Echo (right of Merge Conflict Resolver) */}
+          <div className="relative min-w-0 flex-1 flex items-center">
+            {latestCmd ? (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRepoSwitcherOpen(false);
+                  setTabCtxMenu(null);
+                  setCmdHistoryOpen((v) => !v);
+                }}
+                title={`${latestCmd.command}${
+                  latestCmd.status === "running"
+                    ? " (执行中...)"
+                    : latestCmd.status === "error"
+                    ? ` (失败: ${latestCmd.error || "error"})`
+                    : ` (成功 · ${formatCmdDuration(latestCmd.durationMs)})`
+                }\n点击查看历史命令`}
+                className={`group h-6 max-w-full min-w-0 px-2 rounded-md border flex items-center gap-1.5 font-mono text-[11px] cursor-pointer transition-colors ${
+                  latestCmd.status === "running"
+                    ? "bg-[#f0f9ff] border-[#bae6fd] text-[#0369a1]"
+                    : latestCmd.status === "error"
+                    ? "bg-[#fef2f2] border-[#fecaca] text-[#991b1b] hover:bg-[#fee2e2]/70"
+                    : "bg-white border-[#cbd5e1] text-[#334155] hover:border-[#94a3b8]"
                 }`}
               >
-                {changedCount}
-              </span>
+                {latestCmd.status === "running" ? (
+                  <RefreshCw className="w-3 h-3 text-[#0284c7] animate-spin shrink-0" />
+                ) : latestCmd.status === "error" ? (
+                  <AlertTriangle className="w-3 h-3 text-[#dc2626] shrink-0" />
+                ) : (
+                  <Terminal className="w-3 h-3 text-[#16a34a] shrink-0" />
+                )}
+                <span className="truncate select-text">{latestCmd.command}</span>
+                {latestCmd.status !== "running" && (
+                  <span className="text-[10px] opacity-65 shrink-0">
+                    {formatCmdDuration(latestCmd.durationMs)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  title="复制命令"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyCommandText(latestCmd.id, latestCmd.command);
+                  }}
+                  className="p-0.5 rounded hover:bg-black/5 text-current opacity-65 hover:opacity-100 cursor-pointer shrink-0"
+                >
+                  {copiedCmdId === latestCmd.id ? (
+                    <Check className="w-3 h-3 text-[#16a34a]" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
+                {commandLogs.length > 1 && (
+                  <span className="inline-flex items-center gap-0.5 pl-1 border-l border-current/15 text-[10px] opacity-70 shrink-0">
+                    <span>{commandLogs.length}</span>
+                    <ChevronDown className="w-3 h-3" />
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div
+                title="执行 Git 操作时将在此回显具体命令"
+                className="h-6 px-2 rounded-md border border-dashed border-[#cbd5e1]/80 bg-white/50 flex items-center gap-1.5 font-mono text-[11px] text-[#94a3b8] max-w-full min-w-0"
+              >
+                <Terminal className="w-3 h-3 shrink-0" />
+                <span className="truncate">$ 等待操作命令...</span>
+              </div>
             )}
-          </button>
-          <button
-            onClick={() => setView("conflicts")}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded text-[12px] font-medium transition-colors cursor-pointer ${
-              view === "conflicts"
-                ? "bg-[#0284c7] text-white shadow-sm"
-                : "text-[#475569] hover:text-[#0b1c30] hover:bg-[#e5eeff]"
-            }`}
-          >
-            <span>Merge Conflict Resolver</span>
-            {conflictCount > 0 && (
-              <span className="px-1.5 rounded-full text-[10px] font-mono font-semibold bg-[#dc2626] text-white">
-                {conflictCount}
-              </span>
-            )}
-          </button>
-        </nav>
 
-        <div className="flex items-center gap-2">
+            {cmdHistoryOpen && commandLogs.length > 0 && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute left-0 top-7 z-50 w-[min(640px,78vw)] bg-white border border-[#cbd5e1] rounded-xl shadow-xl py-1.5 text-[12px] text-[#0b1c30]"
+              >
+                <div className="px-3 py-1 border-b border-[#f1f5f9] flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#64748b]">
+                  <span>最近执行的 Git 命令 ({commandLogs.length})</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommandLogs([]);
+                      setCmdHistoryOpen(false);
+                    }}
+                    className="text-[10px] font-medium normal-case text-[#64748b] hover:text-[#dc2626] cursor-pointer"
+                  >
+                    清空记录
+                  </button>
+                </div>
+                <div className="max-h-72 overflow-y-auto divide-y divide-[#f1f5f9]">
+                  {commandLogs.map((item) => {
+                    const repoTab = item.repoPath
+                      ? tabs.find((t) => t.path === item.repoPath)
+                      : null;
+                    return (
+                      <div
+                        key={item.id}
+                        className="px-3 py-2 flex items-start justify-between gap-2 hover:bg-[#f8fafc]"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            {item.status === "running" ? (
+                              <RefreshCw className="w-3 h-3 text-[#0284c7] animate-spin shrink-0" />
+                            ) : item.status === "error" ? (
+                              <AlertTriangle className="w-3 h-3 text-[#dc2626] shrink-0" />
+                            ) : (
+                              <CheckCircle2 className="w-3 h-3 text-[#16a34a] shrink-0" />
+                            )}
+                            {repoTab && (
+                              <span className="px-1.5 py-[1px] rounded bg-[#eff6ff] text-[#0369a1] font-sans text-[10px] font-medium shrink-0">
+                                {repoTab.name}
+                              </span>
+                            )}
+                            <span className="font-mono text-[10px] text-[#94a3b8]">
+                              {formatCmdTime(item.timestamp)}
+                            </span>
+                            {item.status !== "running" && (
+                              <span className="font-mono text-[10px] text-[#64748b]">
+                                {formatCmdDuration(item.durationMs)}
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            className={`font-mono text-[11px] break-all select-text ${
+                              item.status === "error"
+                                ? "text-[#991b1b]"
+                                : "text-[#0b1c30]"
+                            }`}
+                          >
+                            {item.command}
+                          </div>
+                          {item.status === "error" && item.error && (
+                            <div className="mt-0.5 text-[10px] text-[#dc2626] break-words select-text">
+                              {item.error}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          title="复制命令"
+                          onClick={() => copyCommandText(item.id, item.command)}
+                          className="p-1 rounded hover:bg-[#e2e8f0] text-[#64748b] hover:text-[#0b1c30] cursor-pointer shrink-0"
+                        >
+                          {copiedCmdId === item.id ? (
+                            <Check className="w-3.5 h-3.5 text-[#16a34a]" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
           <div className="flex items-center bg-white border border-[#cbd5e1] rounded px-2 py-0.5 w-60">
             <Search className="w-3.5 h-3.5 text-[#94a3b8] mr-1.5 shrink-0" />
             <input

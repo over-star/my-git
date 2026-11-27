@@ -17,6 +17,7 @@ declare module "@wailsio/runtime" {
         interface CustomEvents {
             "app:open-repo": string;
             "clone:progress": git$0.CloneProgressEvent;
+            "git:command": git$0.CommandEvent;
             "update:status": main$0.UpdateStatus;
         }
     }

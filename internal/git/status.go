@@ -399,7 +399,7 @@ func StageFiles(ctx context.Context, loc RepoLocation, relPaths []string) error 
 		return nil
 	}
 	args := append([]string{"add", "--"}, relPaths...)
-	_, stderr, err := RunGit(ctx, loc, args...)
+	_, stderr, err := RunGitOp(ctx, loc, args...)
 	if err != nil {
 		return fmt.Errorf("stage failed: %s (%w)", strings.TrimSpace(stderr), err)
 	}
@@ -423,7 +423,7 @@ func UnstageFiles(ctx context.Context, loc RepoLocation, relPaths []string) erro
 	} else {
 		args = append([]string{"reset", "HEAD", "--"}, relPaths...)
 	}
-	_, stderr, err := RunGit(ctx, loc, args...)
+	_, stderr, err := RunGitOp(ctx, loc, args...)
 	if err != nil {
 		return fmt.Errorf("unstage failed: %s (%w)", strings.TrimSpace(stderr), err)
 	}
@@ -432,7 +432,7 @@ func UnstageFiles(ctx context.Context, loc RepoLocation, relPaths []string) erro
 
 // StageAll stages all working tree changes including untracked files.
 func StageAll(ctx context.Context, loc RepoLocation) error {
-	_, stderr, err := RunGit(ctx, loc, "add", "-A")
+	_, stderr, err := RunGitOp(ctx, loc, "add", "-A")
 	if err != nil {
 		return fmt.Errorf("stage all failed: %s (%w)", strings.TrimSpace(stderr), err)
 	}
@@ -445,9 +445,9 @@ func UnstageAll(ctx context.Context, loc RepoLocation) error {
 	var stderr string
 	var err error
 	if headErr != nil {
-		_, stderr, err = RunGit(ctx, loc, "rm", "--cached", "-r", ".")
+		_, stderr, err = RunGitOp(ctx, loc, "rm", "--cached", "-r", ".")
 	} else {
-		_, stderr, err = RunGit(ctx, loc, "reset", "HEAD")
+		_, stderr, err = RunGitOp(ctx, loc, "reset", "HEAD")
 	}
 	if err != nil {
 		return fmt.Errorf("unstage all failed: %s (%w)", strings.TrimSpace(stderr), err)
@@ -467,14 +467,14 @@ func DiscardFile(ctx context.Context, loc RepoLocation, relPath string, isUntrac
 func DiscardFiles(ctx context.Context, loc RepoLocation, tracked []string, untracked []string) error {
 	if len(untracked) > 0 {
 		args := append([]string{"clean", "-f", "-d", "--"}, untracked...)
-		_, stderr, err := RunGit(ctx, loc, args...)
+		_, stderr, err := RunGitOp(ctx, loc, args...)
 		if err != nil {
 			return fmt.Errorf("failed to remove untracked files: %s (%w)", strings.TrimSpace(stderr), err)
 		}
 	}
 	if len(tracked) > 0 {
 		args := append([]string{"checkout", "--"}, tracked...)
-		_, stderr, err := RunGit(ctx, loc, args...)
+		_, stderr, err := RunGitOp(ctx, loc, args...)
 		if err != nil {
 			return fmt.Errorf("discard failed: %s (%w)", strings.TrimSpace(stderr), err)
 		}

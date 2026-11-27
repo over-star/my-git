@@ -5,6 +5,7 @@ export type {
     AddWorktreeResult,
     BranchInfo,
     CloneProgressEvent,
+    CommandEvent,
     CommitDetail,
     CommitFileChange,
     CommitFileContent,

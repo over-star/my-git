@@ -223,7 +223,7 @@ func AddWorktree(ctx context.Context, loc RepoLocation, targetPath, branch, base
 		}
 	}
 
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		low := strings.ToLower(combined)
@@ -266,7 +266,7 @@ func RemoveWorktree(ctx context.Context, loc RepoLocation, worktreePath string, 
 	}
 	args = append(args, cliPath)
 
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		low := strings.ToLower(combined)
@@ -303,7 +303,7 @@ func LockWorktree(ctx context.Context, loc RepoLocation, worktreePath, reason st
 	}
 	args = append(args, cliPath)
 
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -321,7 +321,7 @@ func UnlockWorktree(ctx context.Context, loc RepoLocation, worktreePath string) 
 	if cliPath == "" {
 		return OpResult{Success: false, Message: "Worktree path is required"}, nil
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "worktree", "unlock", cliPath)
+	stdout, stderr, err := RunGitOp(ctx, loc, "worktree", "unlock", cliPath)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -335,7 +335,7 @@ func UnlockWorktree(ctx context.Context, loc RepoLocation, worktreePath string) 
 
 // PruneWorktrees removes stale administrative files for deleted worktree directories.
 func PruneWorktrees(ctx context.Context, loc RepoLocation) (OpResult, error) {
-	stdout, stderr, err := RunGit(ctx, loc, "worktree", "prune", "-v")
+	stdout, stderr, err := RunGitOp(ctx, loc, "worktree", "prune", "-v")
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{

@@ -31,6 +31,24 @@ func (s *GitService) longCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 10*time.Minute)
 }
 
+func (s *GitService) withCmdEcho(ctx context.Context) context.Context {
+	return git.WithCommandObserver(ctx, func(ev git.CommandEvent) {
+		if s.app != nil {
+			s.app.Event.Emit("git:command", ev)
+		}
+	})
+}
+
+func (s *GitService) opCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := s.ctx()
+	return s.withCmdEcho(ctx), cancel
+}
+
+func (s *GitService) longOpCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := s.longCtx()
+	return s.withCmdEcho(ctx), cancel
+}
+
 // --- Dialogs & App State ---
 
 func (s *GitService) PickFolder(title string) (string, error) {
@@ -135,7 +153,7 @@ func (s *GitService) OpenRepo(rawPath string) (git.RepoLocation, error) {
 }
 
 func (s *GitService) InitRepo(rawPath string) (git.RepoLocation, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	loc, err := git.InitRepo(ctx, rawPath)
 	if err != nil {
@@ -146,7 +164,7 @@ func (s *GitService) InitRepo(rawPath string) (git.RepoLocation, error) {
 }
 
 func (s *GitService) CloneRepo(cloneID, repoURL, targetParent, folderName string) (git.RepoLocation, error) {
-	ctx, cancel := s.longCtx()
+	ctx, cancel := s.longOpCtx()
 	defer cancel()
 	loc, err := git.CloneRepo(ctx, cloneID, repoURL, targetParent, folderName, func(ev git.CloneProgressEvent) {
 		if s.app != nil {
@@ -170,49 +188,49 @@ func (s *GitService) GetStatus(repoPath string, ignoreWhitespace bool) (git.Repo
 }
 
 func (s *GitService) StageFile(repoPath, relPath string) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.StageFile(ctx, git.ParseRepoLocation(repoPath), relPath)
 }
 
 func (s *GitService) StageFiles(repoPath string, relPaths []string) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.StageFiles(ctx, git.ParseRepoLocation(repoPath), relPaths)
 }
 
 func (s *GitService) UnstageFile(repoPath, relPath string) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.UnstageFile(ctx, git.ParseRepoLocation(repoPath), relPath)
 }
 
 func (s *GitService) UnstageFiles(repoPath string, relPaths []string) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.UnstageFiles(ctx, git.ParseRepoLocation(repoPath), relPaths)
 }
 
 func (s *GitService) StageAll(repoPath string) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.StageAll(ctx, git.ParseRepoLocation(repoPath))
 }
 
 func (s *GitService) UnstageAll(repoPath string) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.UnstageAll(ctx, git.ParseRepoLocation(repoPath))
 }
 
 func (s *GitService) DiscardFile(repoPath, relPath string, isUntracked bool) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.DiscardFile(ctx, git.ParseRepoLocation(repoPath), relPath, isUntracked)
 }
 
 func (s *GitService) DiscardFiles(repoPath string, tracked, untracked []string) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.DiscardFiles(ctx, git.ParseRepoLocation(repoPath), tracked, untracked)
 }
@@ -226,7 +244,7 @@ func (s *GitService) GetWorkingDiff(repoPath, relPath string, staged, isUntracke
 // --- Commits & History ---
 
 func (s *GitService) Commit(repoPath, summary, description string, amend bool) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.Commit(ctx, git.ParseRepoLocation(repoPath), summary, description, amend)
 }
@@ -275,13 +293,13 @@ func (s *GitService) GetCommitFileDiff(repoPath, hash, relPath string, ignoreWhi
 }
 
 func (s *GitService) RevertCommit(repoPath, hash string, isMerge bool) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.RevertCommit(ctx, git.ParseRepoLocation(repoPath), hash, isMerge)
 }
 
 func (s *GitService) ResetToCommit(repoPath, hash, mode string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.ResetToCommit(ctx, git.ParseRepoLocation(repoPath), hash, mode)
 }
@@ -307,25 +325,25 @@ func (s *GitService) ListBranches(repoPath string) ([]git.BranchInfo, error) {
 }
 
 func (s *GitService) CheckoutBranch(repoPath, branchName string, isRemote bool) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.CheckoutBranch(ctx, git.ParseRepoLocation(repoPath), branchName, isRemote)
 }
 
 func (s *GitService) CreateBranch(repoPath, name, startPoint string, checkout bool) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.CreateBranch(ctx, git.ParseRepoLocation(repoPath), name, startPoint, checkout)
 }
 
 func (s *GitService) MergeBranch(repoPath, branchName string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.MergeBranch(ctx, git.ParseRepoLocation(repoPath), branchName)
 }
 
 func (s *GitService) DeleteBranch(repoPath, name string, force bool) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	res, err := git.DeleteBranch(ctx, git.ParseRepoLocation(repoPath), name, force)
 	if err == nil && res.Success {
@@ -335,7 +353,7 @@ func (s *GitService) DeleteBranch(repoPath, name string, force bool) (git.OpResu
 }
 
 func (s *GitService) RenameBranch(repoPath, oldName, newName string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	res, err := git.RenameBranch(ctx, git.ParseRepoLocation(repoPath), oldName, newName)
 	if err == nil && res.Success {
@@ -349,7 +367,7 @@ func (s *GitService) RenameBranch(repoPath, oldName, newName string) (git.OpResu
 }
 
 func (s *GitService) DeleteRemoteBranch(repoPath, remoteBranch string) (git.OpResult, error) {
-	ctx, cancel := s.longCtx()
+	ctx, cancel := s.longOpCtx()
 	defer cancel()
 	res, err := git.DeleteRemoteBranch(ctx, git.ParseRepoLocation(repoPath), remoteBranch)
 	if err == nil && res.Success {
@@ -365,31 +383,31 @@ func (s *GitService) ListTags(repoPath string) ([]git.TagInfo, error) {
 }
 
 func (s *GitService) CreateTag(repoPath, name, target, message string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.CreateTag(ctx, git.ParseRepoLocation(repoPath), name, target, message)
 }
 
 func (s *GitService) CheckoutTag(repoPath, tagName string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.CheckoutTag(ctx, git.ParseRepoLocation(repoPath), tagName)
 }
 
 func (s *GitService) DeleteTag(repoPath, name string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.DeleteTag(ctx, git.ParseRepoLocation(repoPath), name)
 }
 
 func (s *GitService) PushTag(repoPath, remoteName, tagName string) (git.OpResult, error) {
-	ctx, cancel := s.longCtx()
+	ctx, cancel := s.longOpCtx()
 	defer cancel()
 	return git.PushTag(ctx, git.ParseRepoLocation(repoPath), remoteName, tagName)
 }
 
 func (s *GitService) DeleteRemoteTag(repoPath, remoteName, tagName string) (git.OpResult, error) {
-	ctx, cancel := s.longCtx()
+	ctx, cancel := s.longOpCtx()
 	defer cancel()
 	return git.DeleteRemoteTag(ctx, git.ParseRepoLocation(repoPath), remoteName, tagName)
 }
@@ -401,25 +419,25 @@ func (s *GitService) ListStashes(repoPath string) ([]git.StashItem, error) {
 }
 
 func (s *GitService) StashPush(repoPath, message string, includeUntracked bool) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.StashPush(ctx, git.ParseRepoLocation(repoPath), message, includeUntracked)
 }
 
 func (s *GitService) StashApply(repoPath, ref string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.StashApply(ctx, git.ParseRepoLocation(repoPath), ref)
 }
 
 func (s *GitService) StashPop(repoPath, ref string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.StashPop(ctx, git.ParseRepoLocation(repoPath), ref)
 }
 
 func (s *GitService) StashDrop(repoPath, ref string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.StashDrop(ctx, git.ParseRepoLocation(repoPath), ref)
 }
@@ -433,31 +451,31 @@ func (s *GitService) ListWorktrees(repoPath string) ([]git.WorktreeInfo, error) 
 }
 
 func (s *GitService) AddWorktree(repoPath, targetPath, branch, baseRef string, createBranch, detach, force bool) (git.AddWorktreeResult, error) {
-	ctx, cancel := s.longCtx()
+	ctx, cancel := s.longOpCtx()
 	defer cancel()
 	return git.AddWorktree(ctx, git.ParseRepoLocation(repoPath), targetPath, branch, baseRef, createBranch, detach, force)
 }
 
 func (s *GitService) RemoveWorktree(repoPath, worktreePath string, force bool) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.RemoveWorktree(ctx, git.ParseRepoLocation(repoPath), worktreePath, force)
 }
 
 func (s *GitService) LockWorktree(repoPath, worktreePath, reason string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.LockWorktree(ctx, git.ParseRepoLocation(repoPath), worktreePath, reason)
 }
 
 func (s *GitService) UnlockWorktree(repoPath, worktreePath string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.UnlockWorktree(ctx, git.ParseRepoLocation(repoPath), worktreePath)
 }
 
 func (s *GitService) PruneWorktrees(repoPath string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.PruneWorktrees(ctx, git.ParseRepoLocation(repoPath))
 }
@@ -465,19 +483,19 @@ func (s *GitService) PruneWorktrees(repoPath string) (git.OpResult, error) {
 // --- Remote Sync & Conflict Resolution ---
 
 func (s *GitService) Fetch(repoPath string) (git.OpResult, error) {
-	ctx, cancel := s.longCtx()
+	ctx, cancel := s.longOpCtx()
 	defer cancel()
 	return git.Fetch(ctx, git.ParseRepoLocation(repoPath))
 }
 
 func (s *GitService) Pull(repoPath string) (git.OpResult, error) {
-	ctx, cancel := s.longCtx()
+	ctx, cancel := s.longOpCtx()
 	defer cancel()
 	return git.Pull(ctx, git.ParseRepoLocation(repoPath))
 }
 
 func (s *GitService) Push(repoPath string) (git.OpResult, error) {
-	ctx, cancel := s.longCtx()
+	ctx, cancel := s.longOpCtx()
 	defer cancel()
 	return git.Push(ctx, git.ParseRepoLocation(repoPath))
 }
@@ -489,13 +507,13 @@ func (s *GitService) ListRemotes(repoPath string) ([]git.RemoteInfo, error) {
 }
 
 func (s *GitService) SetRemoteURL(repoPath, name, newURL string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.SetRemoteURL(ctx, git.ParseRepoLocation(repoPath), name, newURL)
 }
 
 func (s *GitService) SetBranchUpstream(repoPath, localBranch, remoteName, remoteBranch string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.SetBranchUpstream(ctx, git.ParseRepoLocation(repoPath), localBranch, remoteName, remoteBranch)
 }
@@ -507,7 +525,7 @@ func (s *GitService) GetConflictFile(repoPath, relPath string) (git.ConflictFile
 }
 
 func (s *GitService) SaveResolvedConflict(repoPath, relPath, content string, markResolved bool) error {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	loc := git.ParseRepoLocation(repoPath)
 	if err := git.WriteRepoFile(ctx, loc, relPath, content); err != nil {
@@ -520,13 +538,13 @@ func (s *GitService) SaveResolvedConflict(repoPath, relPath, content string, mar
 }
 
 func (s *GitService) ResolveConflictSide(repoPath, relPath, side string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.ResolveConflictSide(ctx, git.ParseRepoLocation(repoPath), relPath, side)
 }
 
 func (s *GitService) AbortMerge(repoPath string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.AbortMerge(ctx, git.ParseRepoLocation(repoPath))
 }
@@ -588,13 +606,13 @@ func (s *GitService) GetGitConfig(repoPath, distroOverride string) (git.GitConfi
 }
 
 func (s *GitService) SaveGitConfig(upd git.GitConfigUpdate) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.SaveGitConfig(ctx, upd)
 }
 
 func (s *GitService) SetRepoConfigKey(repoPath, key, value string) (git.OpResult, error) {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.SetRepoConfigKey(ctx, repoPath, key, value)
 }
@@ -613,7 +631,7 @@ func (s *GitService) ListSSHKeys(repoPath, distroOverride string) []git.SSHKeyIn
 }
 
 func (s *GitService) TestSSHConnection(repoPath, sshCommand, distroOverride string) git.OpResult {
-	ctx, cancel := s.ctx()
+	ctx, cancel := s.opCtx()
 	defer cancel()
 	return git.TestSSHConnection(ctx, repoPath, sshCommand, distroOverride)
 }

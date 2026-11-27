@@ -197,15 +197,31 @@ func SaveGitConfig(ctx context.Context, upd GitConfigUpdate) (OpResult, error) {
 
 		var stdout, stderr string
 		var err error
-		if skipCD {
-			stdout, stderr, err = RunGitInDir(ctx, loc, args...)
+		if p.val == "" {
+			if skipCD {
+				stdout, stderr, err = RunGitInDir(ctx, loc, args...)
+			} else {
+				stdout, stderr, err = RunGit(ctx, loc, args...)
+			}
+			if err == nil {
+				obs, id, cmdStr, st := emitCommandStart(ctx, loc.Path, args)
+				emitCommandEnd(obs, id, loc.Path, cmdStr, st, stdout, stderr, nil)
+			}
 		} else {
-			stdout, stderr, err = RunGit(ctx, loc, args...)
+			if skipCD {
+				stdout, stderr, err = RunGitInDirOp(ctx, loc, args...)
+			} else {
+				stdout, stderr, err = RunGitOp(ctx, loc, args...)
+			}
 		}
 		if err != nil {
 			// git config --unset-all returns exit code 5 if key didn't exist; ignore that safely
 			if p.val == "" && (strings.TrimSpace(stderr) == "" || strings.Contains(err.Error(), "exit status 5")) {
 				continue
+			}
+			if p.val == "" {
+				obs, id, cmdStr, st := emitCommandStart(ctx, loc.Path, args)
+				emitCommandEnd(obs, id, loc.Path, cmdStr, st, stdout, stderr, err)
 			}
 			return OpResult{
 				Success: false,
@@ -233,7 +249,7 @@ func SaveGitConfig(ctx context.Context, upd GitConfigUpdate) (OpResult, error) {
 // SetRepoConfigKey sets a single --local config key for a repository.
 func SetRepoConfigKey(ctx context.Context, repoPath, key, value string) (OpResult, error) {
 	loc := ParseRepoLocation(repoPath)
-	stdout, stderr, err := RunGit(ctx, loc, "config", "--local", key, value)
+	stdout, stderr, err := RunGitOp(ctx, loc, "config", "--local", key, value)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -341,9 +357,9 @@ func TestSSHConnection(ctx context.Context, repoPath, sshCommand, distro string)
 	var stdout, stderr string
 	var err error
 	if skipCD {
-		stdout, stderr, err = RunGitInDir(ctx, loc, args...)
+		stdout, stderr, err = RunGitInDirOp(ctx, loc, args...)
 	} else {
-		stdout, stderr, err = RunGit(ctx, loc, args...)
+		stdout, stderr, err = RunGitOp(ctx, loc, args...)
 	}
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {

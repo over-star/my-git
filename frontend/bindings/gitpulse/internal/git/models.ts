@@ -38,6 +38,23 @@ export interface CloneProgressEvent {
 }
 
 /**
+ * CommandEvent describes an executed git operation command for live UI echoing.
+ */
+export interface CommandEvent {
+    "id": string;
+    "repoPath": string;
+    "command": string;
+
+    /**
+     * "running", "success", "error"
+     */
+    "status": string;
+    "error"?: string;
+    "durationMs": number;
+    "timestamp": number;
+}
+
+/**
  * CommitDetail holds full commit metadata and changed files.
  */
 export interface CommitDetail {

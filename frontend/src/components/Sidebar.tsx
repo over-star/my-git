@@ -710,12 +710,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
+  const hasWorktrees = useMemo(
+    () => worktrees.length > 1 || worktrees.some((wt) => !wt.isMain || wt.isPrunable),
+    [worktrees]
+  );
+
   return (
     <aside
       style={{ width }}
       className="shrink-0 bg-[#f8fafc] flex flex-col overflow-y-auto select-none p-1.5 gap-1"
     >
-      {/* WORKTREES */}
+      {/* WORKTREES (only shown when repository has linked worktrees) */}
+      {hasWorktrees && (
       <div>
         <div className="flex items-center justify-between px-1.5 py-1 text-[#64748b] hover:text-[#0b1c30]">
           <button
@@ -862,6 +868,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* LOCAL BRANCHES */}
       <div>

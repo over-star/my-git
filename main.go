@@ -20,6 +20,7 @@ var trayIcon []byte
 
 func init() {
 	application.RegisterEvent[git.CloneProgressEvent]("clone:progress")
+	application.RegisterEvent[git.CommandEvent]("git:command")
 	application.RegisterEvent[UpdateStatus]("update:status")
 	application.RegisterEvent[string]("app:open-repo")
 }

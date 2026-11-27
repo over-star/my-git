@@ -27,7 +27,7 @@ func Fetch(ctx context.Context, loc RepoLocation) (OpResult, error) {
 			Output:    "fatal: No remote repository configured.",
 		}, nil
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "fetch", "--all", "--prune")
+	stdout, stderr, err := RunGitOp(ctx, loc, "fetch", "--all", "--prune")
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return classifyRemoteError(ctx, loc, "", false, stdout, stderr, err, ""), nil
@@ -37,7 +37,7 @@ func Fetch(ctx context.Context, loc RepoLocation) (OpResult, error) {
 
 // Pull runs git pull and reports merge conflicts clearly.
 func Pull(ctx context.Context, loc RepoLocation) (OpResult, error) {
-	stdout, stderr, err := RunGit(ctx, loc, "pull")
+	stdout, stderr, err := RunGitOp(ctx, loc, "pull")
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		low := strings.ToLower(combined)
@@ -152,13 +152,13 @@ func SetBranchUpstream(ctx context.Context, loc RepoLocation, localBranch, remot
 	}
 
 	// Fetch first so refs/remotes/<remote>/<branch> exists locally before --set-upstream-to.
-	fOut, fErrText, fErr := RunGit(ctx, loc, "fetch", remoteName)
+	fOut, fErrText, fErr := RunGitOp(ctx, loc, "fetch", remoteName)
 	if fErr != nil {
 		return classifyRemoteError(ctx, loc, remoteName, false, fOut, fErrText, fErr, ""), nil
 	}
 
 	upstreamRef := remoteName + "/" + remoteBranch
-	stdout, stderr, err := RunGit(ctx, loc, "branch", "--set-upstream-to="+upstreamRef, localBranch)
+	stdout, stderr, err := RunGitOp(ctx, loc, "branch", "--set-upstream-to="+upstreamRef, localBranch)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{
@@ -193,7 +193,7 @@ func Push(ctx context.Context, loc RepoLocation) (OpResult, error) {
 		args = []string{"push"}
 	}
 
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return classifyPushError(ctx, loc, remoteName, stdout, stderr, err), nil
@@ -255,9 +255,9 @@ func SetRemoteURL(ctx context.Context, loc RepoLocation, name, newURL string) (O
 	var stdout, stderr string
 	var err error
 	if checkErr != nil {
-		stdout, stderr, err = RunGit(ctx, loc, "remote", "add", name, newURL)
+		stdout, stderr, err = RunGitOp(ctx, loc, "remote", "add", name, newURL)
 	} else {
-		stdout, stderr, err = RunGit(ctx, loc, "remote", "set-url", name, newURL)
+		stdout, stderr, err = RunGitOp(ctx, loc, "remote", "set-url", name, newURL)
 	}
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
@@ -288,6 +288,7 @@ func CloneRepo(ctx context.Context, cloneID, repoURL, targetParent, folderName s
 	parentLoc := ParseRepoLocation(targetParent)
 	var destLoc RepoLocation
 	var cmd *exec.Cmd
+	var cloneArgs []string
 
 	if parentLoc.IsWSL {
 		targetLinux := path.Join(parentLoc.LinuxPath, folderName)
@@ -298,6 +299,7 @@ func CloneRepo(ctx context.Context, cloneID, repoURL, targetParent, folderName s
 		_ = mk.Run()
 
 		sshCmd := resolveDefaultSSHCommand(ctx, parentLoc, true)
+		cloneArgs = []string{"clone", "--progress", repoURL, targetLinux}
 		cmd = exec.CommandContext(ctx, "wsl.exe", "-d", parentLoc.Distro, "-e", "git", "clone", "--progress", repoURL, targetLinux)
 		env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C.UTF-8")
 		wslEnv := "GIT_TERMINAL_PROMPT/u:LC_ALL/u"
@@ -313,6 +315,7 @@ func CloneRepo(ctx context.Context, cloneID, repoURL, targetParent, folderName s
 		targetWin := filepath.Join(parentLoc.Path, folderName)
 		destLoc = ParseRepoLocation(targetWin)
 		sshCmd := resolveDefaultSSHCommand(ctx, parentLoc, true)
+		cloneArgs = []string{"clone", "--progress", repoURL, targetWin}
 		cmd = exec.CommandContext(ctx, "git", "clone", "--progress", repoURL, targetWin)
 		env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C.UTF-8")
 		if sshCmd != "" {
@@ -326,7 +329,9 @@ func CloneRepo(ctx context.Context, cloneID, repoURL, targetParent, folderName s
 	if err != nil {
 		return RepoLocation{}, err
 	}
+	obs, cmdID, cmdStr, startedAt := emitCommandStart(ctx, destLoc.Path, cloneArgs)
 	if err := cmd.Start(); err != nil {
+		emitCommandEnd(obs, cmdID, destLoc.Path, cmdStr, startedAt, "", err.Error(), err)
 		return RepoLocation{}, err
 	}
 
@@ -399,6 +404,7 @@ func CloneRepo(ctx context.Context, cloneID, repoURL, targetParent, folderName s
 		if errMsg == "" {
 			errMsg = err.Error()
 		}
+		emitCommandEnd(obs, cmdID, destLoc.Path, cmdStr, startedAt, "", errMsg, err)
 		if onProgress != nil {
 			onProgress(CloneProgressEvent{
 				ID:      cloneID,
@@ -411,6 +417,7 @@ func CloneRepo(ctx context.Context, cloneID, repoURL, targetParent, folderName s
 		}
 		return RepoLocation{}, fmt.Errorf("git clone failed: %s", errMsg)
 	}
+	emitCommandEnd(obs, cmdID, destLoc.Path, cmdStr, startedAt, "", "", nil)
 
 	if onProgress != nil {
 		onProgress(CloneProgressEvent{
@@ -490,12 +497,14 @@ func ResolveConflictSide(ctx context.Context, loc RepoLocation, relPath, side st
 	if side != "ours" && side != "theirs" {
 		return OpResult{Success: false, Message: "Invalid conflict side; must be 'ours' or 'theirs'"}, nil
 	}
-	stdout, stderr, err := RunGit(ctx, loc, "checkout", "--"+side, "--", relPath)
+	checkoutArgs := []string{"checkout", "--" + side, "--", relPath}
+	obs, cmdID, cmdStr, startedAt := emitCommandStart(ctx, loc.Path, checkoutArgs)
+	stdout, stderr, err := RunGit(ctx, loc, checkoutArgs...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		low := strings.ToLower(combined)
 		if strings.Contains(low, "does not have") {
-			rmOut, rmErrText, rmErr := RunGit(ctx, loc, "rm", "--", relPath)
+			rmOut, rmErrText, rmErr := RunGitOp(ctx, loc, "rm", "--", relPath)
 			rmCombined := strings.TrimSpace(rmOut + "\n" + rmErrText)
 			if rmErr != nil {
 				return OpResult{
@@ -510,12 +519,14 @@ func ResolveConflictSide(ctx context.Context, loc RepoLocation, relPath, side st
 				Output:  rmCombined,
 			}, nil
 		}
+		emitCommandEnd(obs, cmdID, loc.Path, cmdStr, startedAt, stdout, stderr, err)
 		return OpResult{
 			Success: false,
 			Message: firstNonEmpty(strings.TrimSpace(stderr), strings.TrimSpace(stdout), err.Error()),
 			Output:  combined,
 		}, nil
 	}
+	emitCommandEnd(obs, cmdID, loc.Path, cmdStr, startedAt, stdout, stderr, nil)
 	if stErr := StageFile(ctx, loc, relPath); stErr != nil {
 		return OpResult{Success: false, Message: stErr.Error(), Output: combined}, nil
 	}
@@ -554,7 +565,7 @@ func AbortMerge(ctx context.Context, loc RepoLocation) (OpResult, error) {
 	default:
 		args = []string{"merge", "--abort"}
 	}
-	stdout, stderr, err := RunGit(ctx, loc, args...)
+	stdout, stderr, err := RunGitOp(ctx, loc, args...)
 	combined := strings.TrimSpace(stdout + "\n" + stderr)
 	if err != nil {
 		return OpResult{Success: false, Message: firstNonEmpty(strings.TrimSpace(stderr), err.Error()), Output: combined}, nil
