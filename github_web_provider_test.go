@@ -120,3 +120,13 @@ func TestGitHubWebProviderCheckAndDownload(t *testing.T) {
 		t.Fatalf("downloaded payload mismatch: got %q (written=%d)", buf.String(), lastWritten)
 	}
 }
+
+func TestEmbeddedAppVersion(t *testing.T) {
+	if AppVersion == "" || AppVersion == "0.1.0" {
+		t.Fatalf("expected AppVersion to be loaded from VERSION file, got %q", AppVersion)
+	}
+	us := NewUpdateService(AppVersion, githubRepoSlug)
+	if us.GetAppVersion() != AppVersion {
+		t.Fatalf("GetAppVersion() = %q, want %q", us.GetAppVersion(), AppVersion)
+	}
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"os"
@@ -14,9 +15,22 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/updater"
 )
 
+//go:embed VERSION
+var embeddedVersion string
+
 // AppVersion is the current semantic version (without leading "v").
-// Can be overridden at build time via -ldflags "-X main.AppVersion=x.y.z".
-var AppVersion = "0.1.6"
+// Defaults to the root VERSION file and can be overridden at build time via -ldflags "-X main.AppVersion=x.y.z".
+var AppVersion = ""
+
+func init() {
+	AppVersion = strings.TrimPrefix(strings.TrimSpace(AppVersion), "v")
+	if AppVersion == "" {
+		AppVersion = strings.TrimPrefix(strings.TrimSpace(embeddedVersion), "v")
+	}
+	if AppVersion == "" {
+		AppVersion = "0.1.0"
+	}
+}
 
 const (
 	githubRepoSlug = "over-star/my-git"

@@ -88,7 +88,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
             <div>
               <div className="text-[11px] text-[#64748b]">当前版本</div>
               <div className="font-mono font-semibold text-[#0b1c30]">
-                v{status.currentVersion}
+                {status.currentVersion ? `v${status.currentVersion}` : "..."}
               </div>
             </div>
             <button

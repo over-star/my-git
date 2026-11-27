@@ -62,10 +62,18 @@ jobs:
             $tag = "${{ github.ref_name }}"
           }
           if (-not $tag.StartsWith("v")) {
-            $tag = "v0.1.1"
+            $verFromFile = (Get-Content "VERSION" -Raw).Trim().TrimStart("v")
+            $tag = "v$verFromFile"
           }
           $ver = $tag.TrimStart("v")
           "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          # Keep Windows version metadata aligned with the release tag
+          $infoPath = "build/windows/info.json"
+          $infoJson = Get-Content $infoPath -Raw | ConvertFrom-Json
+          $infoJson.fixed.file_version = $ver
+          $infoJson.info."0000".ProductVersion = $ver
+          [System.IO.File]::WriteAllText((Resolve-Path $infoPath).Path, ($infoJson | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
 
           New-Item -ItemType Directory -Force -Path bin | Out-Null
 

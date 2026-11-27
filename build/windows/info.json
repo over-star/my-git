@@ -1,15 +1,15 @@
 {
-	"fixed": {
-		"file_version": "0.1.6"
-	},
-	"info": {
-		"0000": {
-			"ProductVersion": "0.1.6",
-			"CompanyName": "over-star",
-			"FileDescription": "mygit - Lightweight Windows & WSL2 Git GUI Client",
-			"LegalCopyright": "© 2026, over-star",
-			"ProductName": "mygit",
-			"Comments": "Lightweight Windows & WSL2 Git GUI Client"
-		}
-	}
+    "fixed":  {
+                  "file_version":  "0.1.7"
+              },
+    "info":  {
+                 "0000":  {
+                              "ProductVersion":  "0.1.7",
+                              "CompanyName":  "over-star",
+                              "FileDescription":  "mygit - Lightweight Windows \u0026 WSL2 Git GUI Client",
+                              "LegalCopyright":  "漏 2026, over-star",
+                              "ProductName":  "mygit",
+                              "Comments":  "Lightweight Windows \u0026 WSL2 Git GUI Client"
+                          }
+             }
 }

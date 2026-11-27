@@ -63,3 +63,25 @@ tasks:
     summary: Builds and runs the Docker image
     cmds:
       - task: common:run:docker
+
+  version:sync:
+    summary: Syncs VERSION file to build/config.yml and build/windows/info.json (optional VERSION=x.y.z)
+    cmds:
+      - |
+        powershell -NoProfile -Command '
+          $ErrorActionPreference = "Stop"
+          $ver = "{{.VERSION}}".Trim().TrimStart("v")
+          if ([string]::IsNullOrWhiteSpace($ver)) {
+            $ver = (Get-Content "VERSION" -Raw).Trim().TrimStart("v")
+          } else {
+            [System.IO.File]::WriteAllText((Resolve-Path "VERSION").Path, "$ver`n", [System.Text.UTF8Encoding]::new($false))
+          }
+          $cfg = Get-Content "build/config.yml" -Raw
+          $cfg = [regex]::Replace($cfg, "(?m)^(\s*version:\s*\"").*?(\"".*)$", "`${1}$ver`${2}")
+          [System.IO.File]::WriteAllText((Resolve-Path "build/config.yml").Path, $cfg, [System.Text.UTF8Encoding]::new($false))
+          $info = Get-Content "build/windows/info.json" -Raw | ConvertFrom-Json
+          $info.fixed.file_version = $ver
+          $info.info."0000".ProductVersion = $ver
+          [System.IO.File]::WriteAllText((Resolve-Path "build/windows/info.json").Path, ($info | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+          Write-Host "Synced version to $ver"
+        '

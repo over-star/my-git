@@ -334,7 +334,7 @@ export const AppSettingsModal: React.FC<AppSettingsModalProps> = ({
               </div>
               <div className="flex items-center gap-3">
                 <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-white border border-[#e2e8f0] text-[#0b1c30]">
-                  当前版本 v{updateStatus.currentVersion}
+                  当前版本 {updateStatus.currentVersion ? `v${updateStatus.currentVersion}` : "..."}
                 </span>
                 <button
                   type="button"
